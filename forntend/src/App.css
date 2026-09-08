@@ -144,3 +144,30 @@
   text-align: center;
   color: #999999;
 }
+
+.main-layout {
+  display: flex;
+  min-height: calc(100vh - 85px);
+}
+
+.sidebar {
+  width: 180px;
+  background-color: white;
+  border-right: 1px solid #dddddd;
+  padding-top: 20px;
+}
+
+.sidebar a {
+  display: block;
+  padding: 12px 20px;
+  color: #333333;
+  text-decoration: none;
+}
+
+.sidebar a:hover {
+  background-color: #f0f2f5;
+}
+
+.main-content {
+  flex: 1;
+}
