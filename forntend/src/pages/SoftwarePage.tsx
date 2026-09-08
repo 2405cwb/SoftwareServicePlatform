@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-
+import StatusBadge from "../components/StatusBadge";
+import ConfirmDeleteButton from "../components/ConfirmDeleteButton";
+import PageHeader from "../components/PageHeader";
+import SearchBar from "../components/SearchBar";
 /**
  * 软件数据类型
  *
@@ -294,39 +297,36 @@ function SoftwarePage() {
          * PUT /api/softwares/3
          */
 
-        response = await fetch(
-          `/api/softwares/${editingSoftwareId}`,
-          {
-            method: "PUT",
+        response = await fetch(`/api/softwares/${editingSoftwareId}`, {
+          method: "PUT",
 
-            headers: {
-              "Content-Type": "application/json",
-            },
-
-            body: JSON.stringify({
-              id: editingSoftwareId,
-
-              name: softwareName,
-              code: softwareCode,
-              shortName: shortName,
-              category: category,
-
-              description: description,
-
-              developer: developer,
-              supportOwner: supportOwner,
-              department: department,
-
-              platform: platform,
-              technologyStack: technologyStack,
-
-              isEnabled: isEnabled,
-              allowDownload: allowDownload,
-
-              remark: remark,
-            }),
+          headers: {
+            "Content-Type": "application/json",
           },
-        );
+
+          body: JSON.stringify({
+            id: editingSoftwareId,
+
+            name: softwareName,
+            code: softwareCode,
+            shortName: shortName,
+            category: category,
+
+            description: description,
+
+            developer: developer,
+            supportOwner: supportOwner,
+            department: department,
+
+            platform: platform,
+            technologyStack: technologyStack,
+
+            isEnabled: isEnabled,
+            allowDownload: allowDownload,
+
+            remark: remark,
+          }),
+        });
       }
 
       /**
@@ -377,28 +377,16 @@ function SoftwarePage() {
    */
   async function deleteSoftware(id: number) {
     // 删除属于危险操作，先让用户确认
-    const confirmed = window.confirm(
-      "确定要删除这个软件吗？",
-    );
-
-    if (!confirmed) {
-      return;
-    }
 
     try {
-      const response = await fetch(
-        `/api/softwares/${id}`,
-        {
-          method: "DELETE",
-        },
-      );
+      const response = await fetch(`/api/softwares/${id}`, {
+        method: "DELETE",
+      });
 
       if (!response.ok) {
         const errorText = await response.text();
 
-        throw new Error(
-          errorText || `删除失败：${response.status}`,
-        );
+        throw new Error(errorText || `删除失败：${response.status}`);
       }
 
       // 删除成功后重新加载软件列表
@@ -426,9 +414,7 @@ function SoftwarePage() {
    */
   const filteredSoftwares = softwares.filter((software) => {
     // 去掉首尾空格并转成小写
-    const keyword = searchKeyword
-      .trim()
-      .toLowerCase();
+    const keyword = searchKeyword.trim().toLowerCase();
 
     // 没输入内容时显示全部软件
     if (keyword === "") {
@@ -459,27 +445,18 @@ function SoftwarePage() {
       {/* ======================
           页面标题
          ====================== */}
-      <div className="title-row">
-        <h2>软件管理</h2>
-
-        <button
-          className="primary-button"
-          onClick={createSoftware}
-        >
-          + 新增软件
-        </button>
-      </div>
+      <PageHeader
+        title="软件管理"
+        buttonText="+ 新增软件"
+        onButtonClick={createSoftware}
+      />
 
       {/* ======================
           新增 / 编辑表单
          ====================== */}
       {showSoftwareForm && (
         <div className="form-box">
-          <h3>
-            {editingSoftwareId === null
-              ? "新增软件"
-              : "编辑软件"}
-          </h3>
+          <h3>{editingSoftwareId === null ? "新增软件" : "编辑软件"}</h3>
 
           {/* ------------------
               基本信息
@@ -494,9 +471,7 @@ function SoftwarePage() {
                 <input
                   placeholder="例如：ROAD_PROCESS"
                   value={softwareCode}
-                  onChange={(e) =>
-                    setSoftwareCode(e.target.value)
-                  }
+                  onChange={(e) => setSoftwareCode(e.target.value)}
                 />
               </div>
 
@@ -506,9 +481,7 @@ function SoftwarePage() {
                 <input
                   placeholder="请输入软件名称"
                   value={softwareName}
-                  onChange={(e) =>
-                    setSoftwareName(e.target.value)
-                  }
+                  onChange={(e) => setSoftwareName(e.target.value)}
                 />
               </div>
 
@@ -518,9 +491,7 @@ function SoftwarePage() {
                 <input
                   placeholder="请输入软件简称"
                   value={shortName}
-                  onChange={(e) =>
-                    setShortName(e.target.value)
-                  }
+                  onChange={(e) => setShortName(e.target.value)}
                 />
               </div>
 
@@ -530,9 +501,7 @@ function SoftwarePage() {
                 <input
                   placeholder="例如：道路检测"
                   value={category}
-                  onChange={(e) =>
-                    setCategory(e.target.value)
-                  }
+                  onChange={(e) => setCategory(e.target.value)}
                 />
               </div>
             </div>
@@ -551,9 +520,7 @@ function SoftwarePage() {
                 <input
                   placeholder="请输入开发负责人"
                   value={developer}
-                  onChange={(e) =>
-                    setDeveloper(e.target.value)
-                  }
+                  onChange={(e) => setDeveloper(e.target.value)}
                 />
               </div>
 
@@ -563,9 +530,7 @@ function SoftwarePage() {
                 <input
                   placeholder="请输入售后负责人"
                   value={supportOwner}
-                  onChange={(e) =>
-                    setSupportOwner(e.target.value)
-                  }
+                  onChange={(e) => setSupportOwner(e.target.value)}
                 />
               </div>
 
@@ -575,9 +540,7 @@ function SoftwarePage() {
                 <input
                   placeholder="例如：研发部"
                   value={department}
-                  onChange={(e) =>
-                    setDepartment(e.target.value)
-                  }
+                  onChange={(e) => setDepartment(e.target.value)}
                 />
               </div>
             </div>
@@ -596,9 +559,7 @@ function SoftwarePage() {
                 <input
                   placeholder="例如：Windows"
                   value={platform}
-                  onChange={(e) =>
-                    setPlatform(e.target.value)
-                  }
+                  onChange={(e) => setPlatform(e.target.value)}
                 />
               </div>
 
@@ -608,9 +569,7 @@ function SoftwarePage() {
                 <input
                   placeholder="例如：C++ / Qt"
                   value={technologyStack}
-                  onChange={(e) =>
-                    setTechnologyStack(e.target.value)
-                  }
+                  onChange={(e) => setTechnologyStack(e.target.value)}
                 />
               </div>
             </div>
@@ -626,11 +585,8 @@ function SoftwarePage() {
               <input
                 type="checkbox"
                 checked={isEnabled}
-                onChange={(e) =>
-                  setIsEnabled(e.target.checked)
-                }
+                onChange={(e) => setIsEnabled(e.target.checked)}
               />
-
               软件启用
             </label>
 
@@ -638,11 +594,8 @@ function SoftwarePage() {
               <input
                 type="checkbox"
                 checked={allowDownload}
-                onChange={(e) =>
-                  setAllowDownload(e.target.checked)
-                }
+                onChange={(e) => setAllowDownload(e.target.checked)}
               />
-
               允许客户下载
             </label>
           </div>
@@ -657,9 +610,7 @@ function SoftwarePage() {
               className="remark-input"
               placeholder="请输入软件功能说明"
               value={description}
-              onChange={(e) =>
-                setDescription(e.target.value)
-              }
+              onChange={(e) => setDescription(e.target.value)}
             />
           </div>
 
@@ -673,9 +624,7 @@ function SoftwarePage() {
               className="remark-input"
               placeholder="请输入备注"
               value={remark}
-              onChange={(e) =>
-                setRemark(e.target.value)
-              }
+              onChange={(e) => setRemark(e.target.value)}
             />
           </div>
 
@@ -683,13 +632,8 @@ function SoftwarePage() {
               保存 / 取消
              ------------------ */}
           <div className="form-buttons">
-            <button
-              className="primary-button"
-              onClick={saveSoftware}
-            >
-              {editingSoftwareId === null
-                ? "保存"
-                : "保存修改"}
+            <button className="primary-button" onClick={saveSoftware}>
+              {editingSoftwareId === null ? "保存" : "保存修改"}
             </button>
 
             <button
@@ -711,27 +655,12 @@ function SoftwarePage() {
       {/* ======================
           搜索栏
          ====================== */}
-      <div className="search-bar">
-        <input
-          type="text"
-          placeholder="搜索软件名称、编码、简称、分类或负责人"
-          value={searchKeyword}
-          onChange={(e) =>
-            setSearchKeyword(e.target.value)
-          }
-        />
-
-        {searchKeyword !== "" && (
-          <button
-            className="normal-button"
-            onClick={() =>
-              setSearchKeyword("")
-            }
-          >
-            清空
-          </button>
-        )}
-      </div>
+      <SearchBar
+        value={searchKeyword}
+        placeholder="搜索软件名称、编码、简称、分类或负责人"
+        onChange={setSearchKeyword}
+        onClear={() => setSearchKeyword("")}
+      />
 
       {/* ======================
           软件列表
@@ -752,88 +681,53 @@ function SoftwarePage() {
 
         {/* 没有符合条件的数据 */}
         {filteredSoftwares.length === 0 ? (
-          <div className="empty">
-            暂无符合条件的软件
-          </div>
+          <div className="empty">暂无符合条件的软件</div>
         ) : (
           /**
            * map：
            * 把每一个 Software 转换成一行页面内容。
            */
           filteredSoftwares.map((software) => (
-            <div
-              className="software-table-row"
-              key={software.id}
-            >
+            <div className="software-table-row" key={software.id}>
               {/* 软件编码 */}
-              <div>
-                {software.code || "-"}
-              </div>
+              <div>{software.code || "-"}</div>
 
               {/* 软件名称 */}
-              <div>
-                {software.name || "-"}
-              </div>
+              <div>{software.name || "-"}</div>
 
               {/* 分类 */}
-              <div>
-                {software.category || "-"}
-              </div>
+              <div>{software.category || "-"}</div>
 
               {/* 平台 */}
-              <div>
-                {software.platform || "-"}
-              </div>
+              <div>{software.platform || "-"}</div>
 
               {/* 开发负责人 */}
-              <div>
-                {software.developer || "-"}
-              </div>
+              <div>{software.developer || "-"}</div>
 
               {/* 售后负责人 */}
-              <div>
-                {software.supportOwner || "-"}
-              </div>
+              <div>{software.supportOwner || "-"}</div>
 
               {/* 软件启用状态 */}
               <div>
-                {software.isEnabled ? (
-                  <span className="status-enabled">
-                    启用
-                  </span>
-                ) : (
-                  <span className="status-disabled">
-                    停用
-                  </span>
-                )}
+                <StatusBadge enabled={software.isEnabled} />
               </div>
 
               {/* 是否允许下载 */}
-              <div>
-                {software.allowDownload
-                  ? "允许"
-                  : "禁止"}
-              </div>
+              <div>{software.allowDownload ? "允许" : "禁止"}</div>
 
               {/* 操作按钮 */}
               <div className="table-actions">
                 <button
                   className="edit-button"
-                  onClick={() =>
-                    editSoftware(software)
-                  }
+                  onClick={() => editSoftware(software)}
                 >
                   编辑
                 </button>
 
-                <button
-                  className="delete-button"
-                  onClick={() =>
-                    deleteSoftware(software.id)
-                  }
-                >
-                  删除
-                </button>
+                <ConfirmDeleteButton
+                  message="确定要删除这个软件吗？"
+                  onConfirm={() => deleteSoftware(software.id)}
+                />
               </div>
             </div>
           ))

@@ -1,4 +1,8 @@
 import { useEffect, useState } from "react";
+import StatusBadge from "../components/StatusBadge";
+import ConfirmDeleteButton from "../components/ConfirmDeleteButton";
+import PageHeader from "../components/PageHeader";
+import SearchBar from "../components/SearchBar";
 
 interface Customer {
   id: number;
@@ -149,10 +153,6 @@ function CustomerPage() {
     }
   }
   async function deleteCustomer(id: number) {
-    const confirmed = window.confirm(`确定要删除这个客户吗？`);
-    if (!confirmed) {
-      return;
-    }
     try {
       const response = await fetch(`/api/customers/${id}`, {
         method: "DELETE",
@@ -237,37 +237,21 @@ function CustomerPage() {
 
   return (
     <div className="content">
-      <div className="search-bar">
-        <input
-          type="text"
-          placeholder="搜索客户名称、编码、联系人或电话"
-          value={searchKeyword}
-          onChange={(e) => setSearchKeyword(e.target.value)}
-        />
-
-        {searchKeyword !== "" && (
-          <button
-            className="normal-button"
-            onClick={() => setSearchKeyword("")}
-          >
-            清空
-          </button>
-        )}
-      </div>
-      <div className="title-row">
-        <h2>客户管理</h2>
-
-        <button
-          className="primary-button"
-          onClick={() => {
-            setEditingCustomerId(null);
-            clearCustomerForm();
-            setShowCreateCustomer(true);
-          }}
-        >
-          + 新增客户
-        </button>
-      </div>
+      <PageHeader
+        title="客户管理"
+        buttonText="+ 新增客户"
+        onButtonClick={() => {
+          setEditingCustomerId(null);
+          clearCustomerForm();
+          setShowCreateCustomer(true);
+        }}
+      />
+      <SearchBar
+        value={searchKeyword}
+        placeholder="搜索客户名称、编码、联系人或电话"
+        onChange={setSearchKeyword}
+        onClear={() => setSearchKeyword("")}
+      />
 
       {showCreateCustomer && (
         <div className="form-box">
@@ -483,11 +467,7 @@ function CustomerPage() {
               <div>{customer.supportOwner || "-"}</div>
 
               <div>
-                {customer.isEnabled ? (
-                  <span className="status-enabled">启用</span>
-                ) : (
-                  <span className="status-disabled">停用</span>
-                )}
+                <StatusBadge enabled={customer.isEnabled} />
               </div>
 
               <div className="table-actions">
@@ -498,12 +478,10 @@ function CustomerPage() {
                   编辑
                 </button>
 
-                <button
-                  className="delete-button"
-                  onClick={() => deleteCustomer(customer.id)}
-                >
-                  删除
-                </button>
+                <ConfirmDeleteButton
+                  message="确定要删除这个客户吗？"
+                  onConfirm={() => deleteCustomer(customer.id)}
+                />
               </div>
             </div>
           ))
