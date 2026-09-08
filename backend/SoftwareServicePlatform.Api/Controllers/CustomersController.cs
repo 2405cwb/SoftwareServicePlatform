@@ -28,25 +28,51 @@ namespace SoftwareServicePlatform.Api.Controllers
         [HttpPost] //新增
         public async Task<IActionResult> CreateCustomer(Customer customer)
         {
-           
-           _dbContext.Customers.Add(customer);
+            customer.CreatedAt = DateTime.UtcNow;
+            customer.UpdatedAt = DateTime.UtcNow;
+
+            _dbContext.Customers.Add(customer);
          await   _dbContext.SaveChangesAsync();
             return Ok(customer);
         }
 
         [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateCustomer(int id,Customer customer)
+        public async Task<IActionResult> UpdateCustomer(
+     int id,
+     Customer customer)
         {
-            var exisintCustomer = await _dbContext.Customers.FindAsync(id);
-            if (exisintCustomer== null)
+            var existingCustomer =
+                await _dbContext.Customers.FindAsync(id);
+
+            if (existingCustomer == null)
             {
                 return NotFound();
-
             }
-            exisintCustomer.Name = customer.Name;
-            await _dbContext.SaveChangesAsync();
-            return Ok(exisintCustomer);
 
+            existingCustomer.Name = customer.Name;
+            existingCustomer.Code = customer.Code;
+            existingCustomer.CustomerType = customer.CustomerType;
+            existingCustomer.Industry = customer.Industry;
+
+            existingCustomer.Province = customer.Province;
+            existingCustomer.City = customer.City;
+            existingCustomer.Address = customer.Address;
+
+            existingCustomer.ContactName = customer.ContactName;
+            existingCustomer.ContactPhone = customer.ContactPhone;
+            existingCustomer.ContactEmail = customer.ContactEmail;
+
+            existingCustomer.SalesOwner = customer.SalesOwner;
+            existingCustomer.SupportOwner = customer.SupportOwner;
+
+            existingCustomer.IsEnabled = customer.IsEnabled;
+            existingCustomer.Remark = customer.Remark;
+
+            existingCustomer.UpdatedAt = DateTime.UtcNow;
+
+            await _dbContext.SaveChangesAsync();
+
+            return Ok(existingCustomer);
         }
 
         [HttpDelete("{id}")]
