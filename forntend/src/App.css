@@ -1,0 +1,146 @@
+.page {
+  min-height: 100vh;
+  background-color: #f5f6f8;
+}
+
+.header {
+  background-color: white;
+  padding: 20px 40px;
+  border-bottom: 1px solid #dddddd;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.header p {
+  margin: 8px 0 0;
+  color: #666666;
+}
+
+.content {
+  width: 900px;
+  margin: 30px auto;
+  background-color: white;
+  padding: 25px;
+  border-radius: 8px;
+}
+
+.title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.title-row h2 {
+  margin: 0;
+}
+
+.primary-button {
+  background-color: #1677ff;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.normal-button {
+  background-color: white;
+  border: 1px solid #cccccc;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.form-box {
+  margin-top: 20px;
+  padding: 20px;
+  background-color: #f8f9fa;
+  border: 1px solid #dddddd;
+  border-radius: 6px;
+}
+
+.form-box h3 {
+  margin-top: 0;
+}
+
+.form-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.form-row label {
+  width: 90px;
+}
+
+.form-row input {
+  width: 300px;
+  padding: 8px;
+  border: 1px solid #cccccc;
+  border-radius: 4px;
+}
+
+.form-buttons {
+  margin-left: 90px;
+}
+
+.form-buttons button {
+  margin-right: 10px;
+}
+
+.customer-list {
+  margin-top: 25px;
+  border: 1px solid #dddddd;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.table-header {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background-color: #f0f2f5;
+  font-weight: bold;
+}
+
+.customer-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  padding: 12px 20px;
+
+  border-top: 1px solid #eeeeee;
+}
+
+.customer-row:hover {
+  background-color: #fafafa;
+}
+
+.edit-button {
+  margin-right: 8px;
+  background-color: white;
+  border: 1px solid #1677ff;
+  color: #1677ff;
+  padding: 5px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.delete-button {
+  background-color: white;
+  border: 1px solid #ff4d4f;
+  color: #ff4d4f;
+  padding: 5px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.empty {
+  padding: 30px;
+  text-align: center;
+  color: #999999;
+}

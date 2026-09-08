@@ -1,0 +1,29 @@
+@SoftwareServicePlatform.Api_HostAddress = http://localhost:5108
+
+GET {{SoftwareServicePlatform.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+
+### 查询客户
+GET {{SoftwareServicePlatform.Api_HostAddress}}/api/customers
+Accept: application/json
+
+
+### 新增客户
+POST {{SoftwareServicePlatform.Api_HostAddress}}/api/customers
+Content-Type: application/json
+
+{
+  "name": "cwb"
+}
+
+### 修改用户
+PUT http://localhost:5108/api/Customers/2
+Content-Type:application/json
+{
+  "id":2,
+   "name": "武汉道路检测有限公司"
+}
+
+### 删除客户
+DELETE http://localhost:5108/api/customers/1
