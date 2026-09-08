@@ -99,3 +99,21 @@ Content-Type: application/json
 ### 删除软件
 
 DELETE http://localhost:5108/api/softwares/2
+
+### 获得软件版本表
+GET http://localhost:5108/api/softwareversions
+
+### 添加版本
+POST http://localhost:5108/api/softwareversions
+Content-Type: application/json
+
+{
+  "softwareId": 1,
+  "version": "1.0.0",
+  "versionType": "Release",
+  "title": "首个正式版本",
+  "releaseNotes": "首次发布",
+  "isPublished": true,
+  "forceUpdate": false,
+  "allowDownload": true
+}

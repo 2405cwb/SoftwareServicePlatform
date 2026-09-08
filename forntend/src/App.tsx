@@ -3,7 +3,7 @@ import { Link, Navigate, Route, Routes } from "react-router-dom";
 import "./App.css";
 import CustomerPage from "./pages/CustomerPage";
 import SoftwarePage from "./pages/SoftwarePage";
-
+import VersionPage from "./pages/VersionPage";
 function App() {
   return (
     <div className="page">
@@ -14,6 +14,7 @@ function App() {
         <div className="sidebar">
           <Link to="/customers">客户管理</Link>
           <Link to="/software">软件管理</Link>
+          <Link to="/versions">版本管理</Link>
         </div>
         <div className="main-content">
           <Routes>
@@ -22,6 +23,7 @@ function App() {
             <Route path="/customers" element={<CustomerPage />} />
 
             <Route path="/software" element={<SoftwarePage />} />
+            <Route path="/versions" element={<VersionPage />} />
           </Routes>
         </div>
       </div>
