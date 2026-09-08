@@ -340,3 +340,96 @@
 
   border-color: #1677ff;
 }
+/* =========================
+   软件管理表格
+   ========================= */
+
+.software-table {
+  margin-top: 10px;
+
+  border: 1px solid #dddddd;
+  border-radius: 6px;
+
+  /*
+    页面宽度不足时允许左右滚动，
+    不把九列内容全部硬挤在一起。
+  */
+  overflow-x: auto;
+}
+
+
+/*
+  表头和数据行使用完全相同的 Grid，
+  这样每一列才能上下对齐。
+*/
+.software-table-header,
+.software-table-row {
+  display: grid;
+
+  /*
+    一共九列：
+
+    软件编码
+    软件名称
+    分类
+    平台
+    开发负责人
+    售后负责人
+    状态
+    下载
+    操作
+  */
+  grid-template-columns:
+    150px
+    2fr
+    120px
+    120px
+    120px
+    120px
+    80px
+    80px
+    150px;
+
+  align-items: center;
+
+  /*
+    窗口太小时保持最低宽度，
+    然后由 software-table 出现横向滚动条。
+  */
+  min-width: 1150px;
+}
+
+
+/* 表头 */
+.software-table-header {
+  background-color: #f0f2f5;
+
+  font-weight: bold;
+
+  border-bottom: 1px solid #dddddd;
+}
+
+
+/* 表格每一个单元格 */
+.software-table-header > div,
+.software-table-row > div {
+  padding: 12px 10px;
+}
+
+
+/* 每一行软件 */
+.software-table-row {
+  border-bottom: 1px solid #eeeeee;
+}
+
+
+/* 最后一行不需要底部边框 */
+.software-table-row:last-child {
+  border-bottom: none;
+}
+
+
+/* 鼠标移到某一行时增加一点背景效果 */
+.software-table-row:hover {
+  background-color: #fafafa;
+}

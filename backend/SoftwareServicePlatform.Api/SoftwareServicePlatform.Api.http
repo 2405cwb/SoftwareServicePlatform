@@ -27,3 +27,75 @@ Content-Type:application/json
 
 ### 删除客户
 DELETE http://localhost:5108/api/customers/1
+
+### 获取软件列表
+GET http://localhost:5108/api/softwares
+Accept: application/json
+
+### 新增软件
+
+POST http://localhost:5108/api/softwares
+Content-Type: application/json
+
+{
+  "name": "路面检测数据处理软件",
+  "code": "ROAD_PROCESS",
+  "shortName": "道路处理平台",
+  "category": "道路检测",
+  "description": "用于道路检测数据导入、处理、统计及结果导出。",
+  "developer": "张三",
+  "supportOwner": "李四",
+  "department": "研发部",
+  "platform": "Windows",
+  "technologyStack": "C++ / Qt",
+  "isEnabled": true,
+  "allowDownload": true,
+  "remark": "核心业务软件"
+}
+
+
+### 修改软件
+
+PUT http://localhost:5108/api/softwares/1
+Content-Type: application/json
+
+{
+  "id": 1,
+  "name": "路面智能检测数据处理软件",
+  "code": "ROAD_PROCESS",
+  "shortName": "道路处理平台",
+  "category": "道路检测",
+  "description": "用于道路检测数据处理、统计分析以及结果导出。",
+  "developer": "张三",
+  "supportOwner": "王工",
+  "department": "研发部",
+  "platform": "Windows",
+  "technologyStack": "C++ / Qt",
+  "isEnabled": true,
+  "allowDownload": true,
+  "remark": "核心业务软件"
+}
+
+  ### 新增删除测试软件
+
+POST http://localhost:5108/api/softwares
+Content-Type: application/json
+
+{
+  "name": "删除测试软件",
+  "code": "DELETE_TEST",
+  "shortName": "测试",
+  "category": "测试",
+  "description": "",
+  "developer": "",
+  "supportOwner": "",
+  "department": "",
+  "platform": "Windows",
+  "technologyStack": "",
+  "isEnabled": true,
+  "allowDownload": false,
+  "remark": ""
+}
+### 删除软件
+
+DELETE http://localhost:5108/api/softwares/2
