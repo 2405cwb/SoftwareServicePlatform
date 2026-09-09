@@ -99,8 +99,20 @@
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
         /// <summary>
+ 
         /// 当前客户拥有的软件绑定关系
         /// </summary>
         public List<CustomerSoftware> CustomerSoftwares { get; set; } = new();
+ 
+        /// 当前客户下面的登录用户
+        ///
+        /// 例如：
+        /// 武汉公路局
+        /// ├─ 张三
+        /// ├─ 李四
+        /// └─ 王五
+        /// </summary>
+        public List<User> Users { get; set; } = new();
+ 
     }
 }

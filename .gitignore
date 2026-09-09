@@ -45,3 +45,8 @@ backend/SoftwareServicePlatform.Api/appsettings.Development.json
 # =========================
 Thumbs.db
 .DS_Store
+
+# =========================
+# Uploaded software packages
+# =========================
+backend/SoftwareServicePlatform.Api/storage/software-packages/

@@ -2,9 +2,12 @@
 using Microsoft.EntityFrameworkCore;
 using SoftwareServicePlatform.Api.Data;
 using SoftwareServicePlatform.Api.Models;
-
+using Microsoft.AspNetCore.Authorization;
 namespace SoftwareServicePlatform.Api.Controllers
 {
+    [Authorize(
+     Roles = "Admin,Support,Developer"
+ )]
     [ApiController]
     [Route("api/[controller]")]
     public class SoftwaresController : ControllerBase

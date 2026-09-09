@@ -1,13 +1,19 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SoftwareServicePlatform.Api.Data;
 using SoftwareServicePlatform.Api.Models;
-using System.Security.Cryptography;
+using System.Security.Cryptography; 
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 namespace SoftwareServicePlatform.Api.Controllers
 {
     /// <summary>
     /// 软件版本管理接口
     /// </summary>
+    [Authorize(
+      Roles = "Admin,Support,Developer"
+  )]
     [ApiController]
     [Route("api/[controller]")]
     public class SoftwareVersionsController : ControllerBase
@@ -633,168 +639,267 @@ namespace SoftwareServicePlatform.Api.Controllers
                 softwareVersion.PackageUploadedAt
             });
         }
-        /// <summary>
-        /// 下载指定软件版本的安装包
-        ///
-        /// 请求：
-        /// GET /api/softwareversions/{id}/package/download
-        /// </summary>
-        [HttpGet("{id}/package/download")]
-        public async Task<IActionResult> DownloadPackage(int id)
+       /// <summary>
+/// 下载指定版本安装包。
+///
+/// 必须登录。
+///
+/// 客户用户：
+/// 必须拥有当前软件的有效绑定关系。
+/// </summary> 
+[HttpGet("{id}/package/download")]
+public async Task<IActionResult> DownloadPackage(int id)
+{
+    /*
+     * =========================
+     * 1. 获取当前登录用户ID
+     * =========================
+     *
+     * 这个 Claim 是我们生成 JWT 时放进去的：
+     *
+     * ClaimTypes.NameIdentifier
+     */
+    var userIdText =
+        User.FindFirstValue(
+            ClaimTypes.NameIdentifier
+        );
+
+    if (!int.TryParse(
+            userIdText,
+            out var userId))
+    {
+        return Unauthorized();
+    }
+
+
+    /*
+     * =========================
+     * 2. 再从数据库读取当前用户
+     * =========================
+     *
+     * 为什么 JWT 已经有用户信息，
+     * 还要再查数据库？
+     *
+     * 因为用户可能在 Token 签发以后：
+     *
+     * - 被管理员停用
+     * - 客户被停用
+     * - 软件授权被取消
+     *
+     * 权限属于比较敏感的数据，
+     * 下载时重新检查数据库更可靠。
+     */
+    var currentUser =
+        await _dbContext.Users
+            .Include(x => x.Customer)
+            .FirstOrDefaultAsync(
+                x => x.Id == userId
+            );
+
+    if (currentUser == null)
+    {
+        return Unauthorized();
+    }
+
+    if (!currentUser.IsEnabled)
+    {
+        return Forbid();
+    }
+
+
+    /*
+     * =========================
+     * 3. 查询软件版本 + 所属软件
+     * =========================
+     */
+    var softwareVersion =
+        await _dbContext.SoftwareVersions
+            .Include(x => x.Software)
+            .FirstOrDefaultAsync(
+                x => x.Id == id
+            );
+
+    if (softwareVersion == null)
+    {
+        return NotFound(
+            "软件版本不存在"
+        );
+    }
+
+    if (softwareVersion.Software == null)
+    {
+        return NotFound(
+            "所属软件不存在"
+        );
+    }
+
+
+    /*
+     * =========================
+     * 4. 软件级总开关
+     * =========================
+     */
+
+    // 软件已经停用
+    if (!softwareVersion.Software.IsEnabled)
+    {
+        return Forbid();
+    }
+
+    // 软件禁止下载
+    if (!softwareVersion.Software.AllowDownload)
+    {
+        return Forbid();
+    }
+
+    // 当前版本禁止下载
+    if (!softwareVersion.AllowDownload)
+    {
+        return Forbid();
+    }
+
+
+    /*
+     * =========================
+     * 5. Customer 用户额外检查授权
+     * =========================
+     */
+    if (currentUser.Role == "Customer")
+    {
+        /*
+         * 客户用户必须属于某个客户。
+         */
+        if (!currentUser.CustomerId.HasValue)
+        {
+            return Forbid();
+        }
+
+        /*
+         * 所属客户必须存在并且启用。
+         */
+        if (
+            currentUser.Customer == null ||
+            !currentUser.Customer.IsEnabled
+        )
+        {
+            return Forbid();
+        }
+
+        /*
+         * 检查：
+         *
+         * 当前客户
+         * +
+         * 当前软件
+         *
+         * 是否存在有效 CustomerSoftware。
+         */
+        var hasSoftwarePermission =
+            await _dbContext.CustomerSoftwares
+                .AnyAsync(
+                    x =>
+                        x.CustomerId ==
+                        currentUser.CustomerId.Value
+                        &&
+                        x.SoftwareId ==
+                        softwareVersion.SoftwareId
+                        &&
+                        x.IsEnabled
+                );
+
+        if (!hasSoftwarePermission)
         {
             /*
-             * 1. 查找软件版本
-             */
-            var softwareVersion =
-     await _dbContext.SoftwareVersions
-         .Include(x => x.Software)
-         .FirstOrDefaultAsync(x => x.Id == id);
-
-            if (softwareVersion == null)
-            {
-                return NotFound("软件版本不存在");
-            }
-
-            /*
-   * 所属软件不存在。
-   *
-   * 正常情况下因为外键关系不应该出现，
-   * 但接口仍然做保护。
-   */
-            if (softwareVersion.Software == null)
-            {
-                return BadRequest("所属软件不存在");
-            }
-
-            /*
-             * 软件已经被停用。
+             * 已经知道你是谁，
+             * 但是你没有这个软件的权限。
              *
-             * Software.IsEnabled 是软件级总开关。
-             * 一旦软件停用，下面所有版本都不能下载。
-             */
-            if (!softwareVersion.Software.IsEnabled)
-            {
-                return BadRequest("当前软件已停用，禁止下载安装包");
-            }
-
-            /*
-             * 软件级禁止下载。
+             * 所以这里是：
              *
-             * 即使某个版本自己的 AllowDownload = true，
-             * 也不能突破软件级总开关。
-             */
-            if (!softwareVersion.Software.AllowDownload)
-            {
-                return BadRequest("当前软件已禁止下载");
-            }
-
-            /*
-             * 软件允许下载后，
-             * 再判断当前具体版本是否允许下载。
-             */
-            if (!softwareVersion.AllowDownload)
-            {
-                return BadRequest("当前版本不允许下载");
-            }
-
-            /*
-             * 2. 判断这个版本是否允许下载
-             */
-            if (!softwareVersion.AllowDownload)
-            {
-                return BadRequest("当前版本不允许下载");
-            }
-
-            /*
-             * 3. 判断有没有上传安装包
-             */
-            if (string.IsNullOrWhiteSpace(
-                    softwareVersion.PackageRelativePath))
-            {
-                return NotFound("当前版本尚未上传安装包");
-            }
-
-            /*
-             * 4. 根据数据库里的相对路径，
-             * 拼出服务器上的真实文件路径。
-             */
-            var fullPath = Path.Combine(
-                _environment.ContentRootPath,
-                softwareVersion
-                    .PackageRelativePath
-                    .Replace(
-                        '/',
-                        Path.DirectorySeparatorChar
-                    )
-            );
-
-            /*
-             * 5. 数据库虽然有记录，
-             * 但是实际文件也可能被人为删除。
+             * 403 Forbidden
              *
-             * 所以必须再次检查文件是否真的存在。
+             * 而不是401。
              */
-            if (!System.IO.File.Exists(fullPath))
-            {
-                return NotFound(
-                    "安装包文件不存在，请重新上传"
-                );
-            }
-
-            /*
-             * 6. 获取下载时显示给用户的文件名。
-             *
-             * 磁盘上的文件可能叫：
-             * 8fbb2d11cxxx.exe
-             *
-             * 但用户下载时应该看到：
-             * RoadProcess_Setup_1.0.0.exe
-             */
-            var downloadFileName =
-                softwareVersion.PackageFileName;
-
-            if (string.IsNullOrWhiteSpace(
-                    downloadFileName))
-            {
-                downloadFileName =
-                    Path.GetFileName(fullPath);
-            }
-
-            /*
-             * 7. 以文件流方式返回。
-             *
-             * 不要先把整个安装包读取到 byte[]。
-             *
-             * 因为以后文件可能：
-             * 500MB
-             * 1GB
-             * 2GB
-             *
-             * FileStream 可以边读取边发送。
-             */
-            var fileStream = new FileStream(
-                fullPath,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read
-            );
-
-            /*
-             * application/octet-stream
-             *
-             * 表示这是一个普通二进制文件。
-             *
-             * enableRangeProcessing = true
-             * 允许浏览器使用 Range 请求，
-             * 对大文件下载更友好。
-             */
-            return File(
-                fileStream,
-                "application/octet-stream",
-                downloadFileName,
-                enableRangeProcessing: true
-            );
+            return Forbid();
         }
+    }
+
+
+    /*
+     * =========================
+     * 6. 检查安装包
+     * =========================
+     */
+    if (string.IsNullOrWhiteSpace(
+            softwareVersion.PackageRelativePath))
+    {
+        return NotFound(
+            "当前版本尚未上传安装包"
+        );
+    }
+
+
+    /*
+     * 拼接服务器真实路径
+     */
+    var fullPath =
+        Path.Combine(
+            _environment.ContentRootPath,
+            softwareVersion
+                .PackageRelativePath
+                .Replace(
+                    '/',
+                    Path.DirectorySeparatorChar
+                )
+        );
+
+
+    /*
+     * 数据库有记录，
+     * 但磁盘文件也可能被人为删除。
+     */
+    if (!System.IO.File.Exists(fullPath))
+    {
+        return NotFound(
+            "安装包文件不存在，请重新上传"
+        );
+    }
+
+
+    /*
+     * 用户最终看到的下载文件名。
+     */
+    var downloadFileName =
+        softwareVersion.PackageFileName;
+
+    if (string.IsNullOrWhiteSpace(
+            downloadFileName))
+    {
+        downloadFileName =
+            Path.GetFileName(fullPath);
+    }
+
+
+    /*
+     * =========================
+     * 7. FileStream流式下载
+     * =========================
+     */
+    var fileStream =
+        new FileStream(
+            fullPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read
+        );
+
+
+    return File(
+        fileStream,
+        "application/octet-stream",
+        downloadFileName,
+        enableRangeProcessing: true
+    );
+}
     }
 
 }

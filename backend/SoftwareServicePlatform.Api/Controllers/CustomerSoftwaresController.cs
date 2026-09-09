@@ -2,12 +2,13 @@
 using Microsoft.EntityFrameworkCore;
 using SoftwareServicePlatform.Api.Data;
 using SoftwareServicePlatform.Api.Models;
-
+using Microsoft.AspNetCore.Authorization;
 namespace SoftwareServicePlatform.Api.Controllers
 {
     /// <summary>
     /// 客户与软件绑定关系管理
     /// </summary>
+    [Authorize]
     [ApiController]
     [Route("api/[controller]")]
     public class CustomerSoftwaresController : ControllerBase
