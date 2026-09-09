@@ -97,5 +97,10 @@
         /// 最后修改时间
         /// </summary>
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+        /// <summary>
+        /// 当前客户拥有的软件绑定关系
+        /// </summary>
+        public List<CustomerSoftware> CustomerSoftwares { get; set; } = new();
     }
 }

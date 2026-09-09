@@ -505,3 +505,51 @@
   font-size: 12px;
   color: #888888;
 }
+
+
+/* =========================
+   客户软件绑定
+   ========================= */
+
+.software-binding-list {
+  display: grid;
+
+  grid-template-columns:
+    repeat(2, 1fr);
+
+  gap: 12px;
+
+  margin-top: 10px;
+}
+
+.software-binding-item {
+  display: flex;
+
+  align-items: flex-start;
+
+  gap: 10px;
+
+  padding: 12px;
+
+  border: 1px solid #dddddd;
+
+  border-radius: 6px;
+
+  cursor: pointer;
+}
+
+.software-binding-item:hover {
+  background-color: #fafafa;
+}
+
+.software-binding-item input {
+  margin-top: 4px;
+}
+
+.software-binding-status {
+  margin-top: 4px;
+
+  font-size: 12px;
+
+  color: #888888;
+}
