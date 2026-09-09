@@ -77,5 +77,32 @@
         /// 一个 SoftwareVersion 只属于一个 Software。
         /// </summary>
         public Software? Software { get; set; }
+
+
+        /// <summary>
+        /// 安装包原始文件名
+        /// 例如：RoadProcess_Setup_1.0.0.exe
+        /// </summary>
+        public string PackageFileName { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 安装包文件大小，单位：字节
+        /// </summary>
+        public long PackageFileSize { get; set; }
+
+        /// <summary>
+        /// 安装包在服务器上的相对路径
+        /// </summary>
+        public string PackageRelativePath { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 安装包 SHA256 校验值
+        /// </summary>
+        public string PackageSha256 { get; set; } = string.Empty;
+
+        /// <summary>
+        /// 安装包上传时间
+        /// </summary>
+        public DateTime? PackageUploadedAt { get; set; }
     }
 }

@@ -459,11 +459,12 @@
     100px
     100px
     100px
-    100px;
+    220px
+    420px;
 
   align-items: center;
 
-  min-width: 1000px;
+  min-width: 1500px;
 }
 
 .version-table-header {
@@ -487,4 +488,20 @@
 
 .version-table-row:hover {
   background-color: #fafafa;
+}
+
+/* 安装包选择后的文件信息 */
+.package-file-info {
+  margin-top: 12px;
+  padding: 10px;
+  background-color: #f5f5f5;
+  border-radius: 6px;
+  line-height: 1.8;
+}
+
+/* 安装包大小辅助文字 */
+.package-size {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #888888;
 }

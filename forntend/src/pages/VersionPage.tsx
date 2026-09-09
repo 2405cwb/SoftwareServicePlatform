@@ -54,6 +54,18 @@ interface SoftwareVersion {
 
   createdAt: string;
   updatedAt: string;
+
+  // 安装包原始文件名
+  packageFileName: string;
+
+  // 安装包大小，单位：字节
+  packageFileSize: number;
+
+  // 安装包 SHA256
+  packageSha256: string;
+
+  // 安装包上传时间
+  packageUploadedAt: string | null;
 }
 
 function VersionPage() {
@@ -153,6 +165,41 @@ function VersionPage() {
    * 是否允许下载
    */
   const [allowDownload, setAllowDownload] = useState(true);
+
+  /**
+   * 用户当前选择的安装包。
+   *
+   * File 是浏览器提供的文件对象。
+   *
+   * null 表示目前没有选择文件。
+   */
+  const [selectedPackage, setSelectedPackage] = useState<File | null>(null);
+
+  /**
+   * 当前准备上传安装包的软件版本。
+   *
+   * null：
+   * 当前没有打开上传区域
+   *
+   * 有值：
+   * 当前正在准备给这个版本上传安装包
+   */
+  const [selectedUploadVersion, setSelectedUploadVersion] =
+    useState<SoftwareVersion | null>(null);
+
+  /**
+   * 当前正在上传哪个版本。
+   *
+   * null：
+   * 没有上传任务
+   *
+   * 有数字：
+   * 正在上传这个版本ID的安装包
+   */
+  const [uploadingVersionId, setUploadingVersionId] = useState<number | null>(
+    null,
+  );
+
   /**
    * 从后端加载软件列表
    */
@@ -392,6 +439,101 @@ function VersionPage() {
 
     setShowVersionForm(true);
   }
+
+  /**
+   * 给某个软件版本上传安装包
+   */
+  /**
+   * 上传安装包
+   */
+  async function uploadPackage() {
+    /**
+     * 必须先选择一个版本
+     */
+    if (selectedUploadVersion === null) {
+      alert("请先选择要上传安装包的版本");
+      return;
+    }
+
+    /**
+     * 必须选择文件
+     */
+    if (selectedPackage === null) {
+      alert("请先选择安装包");
+      return;
+    }
+
+    /**
+     * 当前版本ID
+     */
+    const softwareVersionId = selectedUploadVersion.id;
+
+    try {
+      setUploadingVersionId(softwareVersionId);
+
+      /**
+       * 创建 FormData
+       */
+      const formData = new FormData();
+
+      /**
+       * 后端参数名字叫 file，
+       * 所以前端这里必须叫 file。
+       */
+      formData.append("file", selectedPackage);
+
+      const response = await fetch(
+        `/api/softwareversions/${softwareVersionId}/package`,
+        {
+          method: "POST",
+
+          /*
+           * 注意：
+           * FormData 不要手工设置
+           * Content-Type。
+           */
+          body: formData,
+        },
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+
+        throw new Error(errorText || `安装包上传失败：${response.status}`);
+      }
+
+      alert("安装包上传成功");
+
+      /**
+       * 清空上传状态
+       */
+      setSelectedPackage(null);
+
+      setSelectedUploadVersion(null);
+
+      /**
+       * 重新查询数据库
+       */
+      await loadVersions();
+    } catch (error) {
+      console.error("上传安装包失败：", error);
+
+      alert("上传安装包失败：" + String(error));
+    } finally {
+      setUploadingVersionId(null);
+    }
+  }
+  /**
+   * 打开安装包上传区域
+   */
+  function openPackageUpload(softwareVersion: SoftwareVersion) {
+    // 记录当前准备上传的是哪个版本
+    setSelectedUploadVersion(softwareVersion);
+
+    // 每次重新打开时，
+    // 清空之前选择过的文件
+    setSelectedPackage(null);
+  }
   /**
    * 删除软件版本
    *
@@ -419,6 +561,83 @@ function VersionPage() {
       alert("删除版本失败：" + String(error));
     }
   }
+
+  /**
+   * 把字节转换成更容易阅读的文件大小。
+   *
+   * 例如：
+   * 1024       → 1.00 KB
+   * 1048576    → 1.00 MB
+   */
+  function formatFileSize(bytes: number) {
+    if (bytes <= 0) {
+      return "0 B";
+    }
+
+    const kb = 1024;
+    const mb = kb * 1024;
+    const gb = mb * 1024;
+
+    if (bytes >= gb) {
+      return (bytes / gb).toFixed(2) + " GB";
+    }
+
+    if (bytes >= mb) {
+      return (bytes / mb).toFixed(2) + " MB";
+    }
+
+    if (bytes >= kb) {
+      return (bytes / kb).toFixed(2) + " KB";
+    }
+
+    return bytes + " B";
+  }
+
+  /**
+   * 下载某个软件版本的安装包
+   */
+  function downloadPackage(softwareVersion: SoftwareVersion) {
+    /**
+     * 没有安装包
+     */
+    if (!softwareVersion.packageFileName) {
+      alert("当前版本尚未上传安装包");
+      return;
+    }
+
+    /**
+     * 不允许下载
+     */
+    if (!softwareVersion.allowDownload) {
+      alert("当前版本不允许下载");
+      return;
+    }
+
+    /**
+     * 创建一个临时的 <a> 标签。
+     *
+     * 相当于：
+     *
+     * <a href="/api/...">
+     *   下载
+     * </a>
+     */
+    const link = document.createElement("a");
+
+    link.href = `/api/softwareversions/${softwareVersion.id}/package/download`;
+
+    /*
+     * 不需要把这个标签真正显示在页面上。
+     *
+     * 直接模拟点击即可。
+     */
+    document.body.appendChild(link);
+
+    link.click();
+
+    document.body.removeChild(link);
+  }
+
   return (
     <div className="content">
       {/* ================= 页面标题 ================= */}
@@ -431,6 +650,113 @@ function VersionPage() {
           setShowVersionForm(true);
         }}
       />
+      {/* =========================
+    安装包上传区域
+    ========================= */}
+      {selectedUploadVersion !== null && (
+        <div className="form-box">
+          <h3>上传安装包</h3>
+
+          <div className="form-section">
+            <h4>当前版本</h4>
+
+            <div className="form-grid">
+              {/* 软件 */}
+              <div className="form-item">
+                <label>软件名称</label>
+
+                <div>{getSoftwareName(selectedUploadVersion.softwareId)}</div>
+              </div>
+
+              {/* 版本 */}
+              <div className="form-item">
+                <label>版本号</label>
+
+                <div>{selectedUploadVersion.version}</div>
+              </div>
+
+              {/* 类型 */}
+              <div className="form-item">
+                <label>版本类型</label>
+
+                <div>{selectedUploadVersion.versionType}</div>
+              </div>
+
+              {/* 当前安装包 */}
+              <div className="form-item">
+                <label>当前安装包</label>
+
+                <div>{selectedUploadVersion.packageFileName || "暂未上传"}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* =========================
+        文件选择
+        ========================= */}
+          <div className="form-section">
+            <h4>选择安装包</h4>
+
+            <div className="form-item">
+              <input
+                type="file"
+                accept=".exe,.msi,.zip"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+
+                  if (file) {
+                    setSelectedPackage(file);
+                  } else {
+                    setSelectedPackage(null);
+                  }
+                }}
+              />
+            </div>
+
+            {/* 选择文件以后显示文件信息 */}
+            {selectedPackage !== null && (
+              <div className="package-file-info">
+                <div>
+                  文件名：
+                  {selectedPackage.name}
+                </div>
+
+                <div>
+                  文件大小：
+                  {formatFileSize(selectedPackage.size)}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* =========================
+        按钮
+        ========================= */}
+          <div className="form-buttons">
+            <button
+              className="primary-button"
+              disabled={uploadingVersionId === selectedUploadVersion.id}
+              onClick={uploadPackage}
+            >
+              {uploadingVersionId === selectedUploadVersion.id
+                ? "上传中..."
+                : "开始上传"}
+            </button>
+
+            <button
+              className="normal-button"
+              disabled={uploadingVersionId !== null}
+              onClick={() => {
+                setSelectedPackage(null);
+                setSelectedUploadVersion(null);
+              }}
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
+
       {showVersionForm && (
         <div className="form-box">
           <h3>{editingVersionId === null ? "新增版本" : "编辑版本"}</h3>
@@ -585,6 +911,9 @@ function VersionPage() {
           <div>发布状态</div>
           <div>强制升级</div>
           <div>允许下载</div>
+
+          <div>安装包</div>
+
           <div>操作</div>
         </div>
 
@@ -604,24 +933,52 @@ function VersionPage() {
             <div>{version.forceUpdate ? "是" : "否"}</div>
 
             <div>{version.allowDownload ? "是" : "否"}</div>
+            <div>
+              {version.packageFileName ? (
+                <>
+                  <div>{version.packageFileName}</div>
 
+                  <div className="package-size">
+                    {formatFileSize(version.packageFileSize)}
+                  </div>
+                </>
+              ) : (
+                "未上传"
+              )}
+            </div>
             <div className="table-actions">
-              {/* 下一步实现 */}
-              <div className="table-actions">
-                {/* 编辑 */}
-                <button
-                  className="edit-button"
-                  onClick={() => editVersion(version)}
-                >
-                  编辑
-                </button>
+              {/* 编辑版本 */}
+              <button
+                className="edit-button"
+                onClick={() => editVersion(version)}
+              >
+                编辑
+              </button>
 
-                {/* 删除 */}
-                <ConfirmDeleteButton
-                  message={`确定要删除版本 ${version.version} 吗？`}
-                  onConfirm={() => deleteVersion(version.id)}
-                />
-              </div>
+              {/* 删除版本 */}
+              <ConfirmDeleteButton
+                message={`确定要删除版本 ${version.version} 吗？`}
+                onConfirm={() => deleteVersion(version.id)}
+              />
+
+              {/* =========================
+      选择安装包
+      ========================= */}
+              <button
+                className="normal-button"
+                onClick={() => openPackageUpload(version)}
+              >
+                {version.packageFileName ? "更换安装包" : "上传安装包"}
+              </button>
+              {version.packageFileName && (
+                <button
+                  className="normal-button"
+                  disabled={!version.allowDownload}
+                  onClick={() => downloadPackage(version)}
+                >
+                  下载
+                </button>
+              )}
             </div>
           </div>
         ))}

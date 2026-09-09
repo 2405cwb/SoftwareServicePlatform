@@ -2,7 +2,7 @@
 using Microsoft.EntityFrameworkCore;
 using SoftwareServicePlatform.Api.Data;
 using SoftwareServicePlatform.Api.Models;
-
+using System.Security.Cryptography;
 namespace SoftwareServicePlatform.Api.Controllers
 {
     /// <summary>
@@ -14,12 +14,14 @@ namespace SoftwareServicePlatform.Api.Controllers
     {
         private readonly AppDbContext _dbContext;
 
+        private readonly IWebHostEnvironment _environment;
         /// <summary>
         /// 通过依赖注入获取数据库上下文
         /// </summary>
-        public SoftwareVersionsController(AppDbContext dbContext)
+        public SoftwareVersionsController(AppDbContext dbContext, IWebHostEnvironment environment)
         {
             _dbContext = dbContext;
+            _environment = environment;
         }
 
         /// <summary>
@@ -292,5 +294,395 @@ namespace SoftwareServicePlatform.Api.Controllers
 
             return NoContent();
         }
+
+        /// <summary>
+        /// 给指定的软件版本上传安装包
+        ///
+        /// 请求方式：
+        /// POST /api/softwareversions/{id}/package
+        ///
+        /// 请求格式：
+        /// multipart/form-data
+        ///
+        /// 表单字段：
+        /// file
+        /// </summary>
+        [HttpPost("{id}/package")]
+        [RequestSizeLimit(2L * 1024 * 1024 * 1024)]
+        public async Task<IActionResult> UploadPackage(
+            int id,
+            [FromForm] IFormFile file)
+        {
+            /*
+             * 1. 先查版本是否存在
+             */
+            var softwareVersion =
+                await _dbContext.SoftwareVersions
+                    .FindAsync(id);
+
+            if (softwareVersion == null)
+            {
+                return NotFound("软件版本不存在");
+            }
+
+            /*
+             * 2. 检查文件
+             */
+            if (file == null || file.Length <= 0)
+            {
+                return BadRequest("请选择要上传的安装包");
+            }
+
+            /*
+             * 3. 获取扩展名
+             *
+             * 例如：
+             * Setup.exe
+             *
+             * 得到：
+             * .exe
+             */
+            var extension =
+                Path.GetExtension(file.FileName)
+                    .ToLowerInvariant();
+
+            /*
+             * 当前阶段只允许这几种安装包。
+             *
+             * 后续如果需要：
+             * .7z
+             * .rar
+             *
+             * 再增加即可。
+             */
+            var allowedExtensions = new[]
+            {
+        ".exe",
+        ".msi",
+        ".zip"
+    };
+
+            if (!allowedExtensions.Contains(extension))
+            {
+                return BadRequest(
+                    "目前只允许上传 exe、msi 或 zip 文件"
+                );
+            }
+
+            /*
+             * 4. 获取安全的原始文件名
+             *
+             * Path.GetFileName 可以避免用户文件名
+             * 携带目录路径。
+             */
+            var originalFileName =
+                Path.GetFileName(file.FileName);
+
+            /*
+             * 5. 每一个软件版本建立独立目录
+             *
+             * 例如版本ID = 12：
+             *
+             * storage
+             * └─ software-packages
+             *    └─ 12
+             */
+            var packageDirectory = Path.Combine(
+                _environment.ContentRootPath,
+                "storage",
+                "software-packages",
+                id.ToString()
+            );
+
+            Directory.CreateDirectory(
+                packageDirectory
+            );
+
+            /*
+             * 6. 磁盘上不用用户原始文件名，
+             * 而使用 GUID。
+             *
+             * 例如：
+             *
+             * 原文件：
+             * RoadProcess_Setup.exe
+             *
+             * 磁盘实际保存：
+             * 4938109ff4....exe
+             *
+             * 这样可以避免：
+             * - 文件重名
+             * - 特殊字符
+             * - 路径问题
+             */
+            var storedFileName =
+                $"{Guid.NewGuid():N}{extension}";
+
+            var fullPath = Path.Combine(
+                packageDirectory,
+                storedFileName
+            );
+
+            /*
+             * 7. 把上传的数据真正写入硬盘
+             */
+            await using (
+                var fileStream =
+                    new FileStream(
+                        fullPath,
+                        FileMode.Create
+                    )
+            )
+            {
+                await file.CopyToAsync(
+                    fileStream
+                );
+            }
+
+            /*
+             * 8. 计算 SHA256
+             *
+             * SHA256 可以用来判断：
+             *
+             * 安装包有没有损坏
+             * 安装包内容有没有变化
+             */
+            string sha256Text;
+
+            using (
+                var sha256 = SHA256.Create()
+            )
+            {
+                await using var hashStream =
+                    System.IO.File.OpenRead(
+                        fullPath
+                    );
+
+                var hashBytes =
+                    await sha256.ComputeHashAsync(
+                        hashStream
+                    );
+
+                sha256Text =
+                    Convert.ToHexString(
+                        hashBytes
+                    ).ToLowerInvariant();
+            }
+
+            /*
+             * 9. 如果这个版本以前已经上传过安装包，
+             * 删除旧文件。
+             *
+             * 注意：
+             * 新文件已经保存成功之后，
+             * 我们才删除旧文件。
+             */
+            if (!string.IsNullOrWhiteSpace(
+                    softwareVersion.PackageRelativePath))
+            {
+                var oldFullPath =
+                    Path.Combine(
+                        _environment.ContentRootPath,
+                        softwareVersion
+                            .PackageRelativePath
+                            .Replace(
+                                '/',
+                                Path.DirectorySeparatorChar
+                            )
+                    );
+
+                if (System.IO.File.Exists(
+                        oldFullPath))
+                {
+                    System.IO.File.Delete(
+                        oldFullPath
+                    );
+                }
+            }
+
+            /*
+             * 10. 保存相对路径
+             *
+             * 数据库不要保存：
+             *
+             * D:\job\工作COD\...
+             *
+             * 因为以后部署到 Linux，
+             * 这个路径肯定会变化。
+             *
+             * 数据库只保存相对路径。
+             */
+            var relativePath =
+                Path.Combine(
+                    "storage",
+                    "software-packages",
+                    id.ToString(),
+                    storedFileName
+                )
+                .Replace("\\", "/");
+
+            /*
+             * 11. 保存安装包信息到数据库
+             */
+            softwareVersion.PackageFileName =
+                originalFileName;
+
+            softwareVersion.PackageFileSize =
+                file.Length;
+
+            softwareVersion.PackageRelativePath =
+                relativePath;
+
+            softwareVersion.PackageSha256 =
+                sha256Text;
+
+            softwareVersion.PackageUploadedAt =
+                DateTime.UtcNow;
+
+            softwareVersion.UpdatedAt =
+                DateTime.UtcNow;
+
+            await _dbContext.SaveChangesAsync();
+
+            /*
+             * 12. 返回上传结果
+             */
+            return Ok(new
+            {
+                message = "安装包上传成功",
+
+                softwareVersion.Id,
+
+                softwareVersion.PackageFileName,
+
+                softwareVersion.PackageFileSize,
+
+                softwareVersion.PackageSha256,
+
+                softwareVersion.PackageUploadedAt
+            });
+        }
+        /// <summary>
+        /// 下载指定软件版本的安装包
+        ///
+        /// 请求：
+        /// GET /api/softwareversions/{id}/package/download
+        /// </summary>
+        [HttpGet("{id}/package/download")]
+        public async Task<IActionResult> DownloadPackage(int id)
+        {
+            /*
+             * 1. 查找软件版本
+             */
+            var softwareVersion =
+                await _dbContext.SoftwareVersions
+                    .FindAsync(id);
+
+            if (softwareVersion == null)
+            {
+                return NotFound("软件版本不存在");
+            }
+
+            /*
+             * 2. 判断这个版本是否允许下载
+             */
+            if (!softwareVersion.AllowDownload)
+            {
+                return BadRequest("当前版本不允许下载");
+            }
+
+            /*
+             * 3. 判断有没有上传安装包
+             */
+            if (string.IsNullOrWhiteSpace(
+                    softwareVersion.PackageRelativePath))
+            {
+                return NotFound("当前版本尚未上传安装包");
+            }
+
+            /*
+             * 4. 根据数据库里的相对路径，
+             * 拼出服务器上的真实文件路径。
+             */
+            var fullPath = Path.Combine(
+                _environment.ContentRootPath,
+                softwareVersion
+                    .PackageRelativePath
+                    .Replace(
+                        '/',
+                        Path.DirectorySeparatorChar
+                    )
+            );
+
+            /*
+             * 5. 数据库虽然有记录，
+             * 但是实际文件也可能被人为删除。
+             *
+             * 所以必须再次检查文件是否真的存在。
+             */
+            if (!System.IO.File.Exists(fullPath))
+            {
+                return NotFound(
+                    "安装包文件不存在，请重新上传"
+                );
+            }
+
+            /*
+             * 6. 获取下载时显示给用户的文件名。
+             *
+             * 磁盘上的文件可能叫：
+             * 8fbb2d11cxxx.exe
+             *
+             * 但用户下载时应该看到：
+             * RoadProcess_Setup_1.0.0.exe
+             */
+            var downloadFileName =
+                softwareVersion.PackageFileName;
+
+            if (string.IsNullOrWhiteSpace(
+                    downloadFileName))
+            {
+                downloadFileName =
+                    Path.GetFileName(fullPath);
+            }
+
+            /*
+             * 7. 以文件流方式返回。
+             *
+             * 不要先把整个安装包读取到 byte[]。
+             *
+             * 因为以后文件可能：
+             * 500MB
+             * 1GB
+             * 2GB
+             *
+             * FileStream 可以边读取边发送。
+             */
+            var fileStream = new FileStream(
+                fullPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read
+            );
+
+            /*
+             * application/octet-stream
+             *
+             * 表示这是一个普通二进制文件。
+             *
+             * enableRangeProcessing = true
+             * 允许浏览器使用 Range 请求，
+             * 对大文件下载更友好。
+             */
+            return File(
+                fileStream,
+                "application/octet-stream",
+                downloadFileName,
+                enableRangeProcessing: true
+            );
+        }
     }
+
 }
+
+ 
