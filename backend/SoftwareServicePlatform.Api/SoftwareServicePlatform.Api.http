@@ -1,5 +1,5 @@
 @SoftwareServicePlatform.Api_HostAddress = http://localhost:5108
-@token = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjMiLCJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1lIjoiYWRtaW4iLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJBZG1pbiIsImRpc3BsYXlOYW1lIjoiYWRtaW4iLCJjdXN0b21lcklkIjoiOSIsIm5iZiI6MTc4ODk0ODUyMCwiZXhwIjoxNzg4OTU1NzIwLCJpc3MiOiJTb2Z0d2FyZVNlcnZpY2VQbGF0Zm9ybSIsImF1ZCI6IlNvZnR3YXJlU2VydmljZVBsYXRmb3JtLkNsaWVudCJ9.1_1jVG2n9IoKZIYwduwd-iPrkDlSg-5VH7FBExHLlaM
+@token =eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjQiLCJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1lIjoiZGV2ZWxvcGVyMDEiLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJEZXZlbG9wZXIiLCJkaXNwbGF5TmFtZSI6Iua1i-ivleW8gOWPkeS6uuWRmCIsIm5iZiI6MTc4ODk1Mzk2OCwiZXhwIjoxNzg4OTYxMTY4LCJpc3MiOiJTb2Z0d2FyZVNlcnZpY2VQbGF0Zm9ybSIsImF1ZCI6IlNvZnR3YXJlU2VydmljZVBsYXRmb3JtLkNsaWVudCJ9._WGSjCd3NaAKFsv9uwFTszCoQik-1DRrIdox24of_0s
 
 GET {{SoftwareServicePlatform.Api_HostAddress}}/weatherforecast/
 Accept: application/json
@@ -141,7 +141,14 @@ Content-Type: application/json
   "username": "cwb",
   "password": "12345678"
 } 
+### 登录账户
+POST http://localhost:5108/api/auth/login
+Content-Type: application/json
 
+{
+  "username": "developer01",
+  "password": "12345678"
+} 
 ###jwt验证get
 GET http://localhost:5108/api/auth/me
 Authorization: Bearer
@@ -204,3 +211,22 @@ Content-Type: application/json
   "phone": "13800138001",
   "isEnabled": false
 }
+
+### 创建工单
+
+POST http://localhost:5108/api/tickets
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "softwareId": 1,
+  "title": "软件启动后提示数据库连接失败",
+  "description": "双击软件启动后提示数据库连接失败，目前无法进入主界面。",
+  "priority": "High"
+}
+
+
+### Customer 查询工单
+
+GET http://localhost:5108/api/tickets
+Authorization: Bearer {{token}}
