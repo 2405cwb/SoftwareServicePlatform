@@ -272,11 +272,17 @@ namespace SoftwareServicePlatform.Api.Controllers
 
         /// <summary>
         /// 删除软件版本
+        ///
+        /// 除了删除数据库记录以外，
+        /// 如果该版本已经上传过安装包，
+        /// 还需要清理服务器上的版本文件目录。
         /// </summary>
         [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteSoftwareVersion(
-            int id)
+        public async Task<IActionResult> DeleteSoftwareVersion(int id)
         {
+            /*
+             * 1. 查询版本是否存在
+             */
             var softwareVersion =
                 await _dbContext.SoftwareVersions
                     .FindAsync(id);
@@ -286,11 +292,76 @@ namespace SoftwareServicePlatform.Api.Controllers
                 return NotFound("软件版本不存在");
             }
 
+            /*
+             * 2. 计算这个版本对应的安装包目录。
+             *
+             * 例如版本 ID = 3：
+             *
+             * storage
+             * └─ software-packages
+             *    └─ 3
+             */
+            var packageDirectory = Path.Combine(
+                _environment.ContentRootPath,
+                "storage",
+                "software-packages",
+                id.ToString()
+            );
+
+            /*
+             * 3. 先删除数据库记录。
+             *
+             * 为什么不是先删除硬盘文件？
+             *
+             * 假如我们先把安装包删掉了，
+             * 但 SaveChangesAsync() 又失败，
+             *
+             * 就会出现：
+             *
+             * 数据库还说“有这个版本和安装包”
+             * 但实际文件已经不存在了。
+             *
+             * 这个问题比留下一个孤儿文件更严重。
+             */
             _dbContext.SoftwareVersions.Remove(
                 softwareVersion
             );
 
             await _dbContext.SaveChangesAsync();
+
+            /*
+             * 4. 数据库删除成功以后，
+             * 再清理服务器文件。
+             *
+             * true：
+             * 表示连同目录下所有文件一起删除。
+             */
+            try
+            {
+                if (Directory.Exists(packageDirectory))
+                {
+                    Directory.Delete(
+                        packageDirectory,
+                        recursive: true
+                    );
+                }
+            }
+            catch (Exception ex)
+            {
+                /*
+                 * 文件清理失败不能让已经成功的数据库删除
+                 * 再假装失败。
+                 *
+                 * 目前学习阶段先记录日志。
+                 *
+                 * 后续正式系统还可以增加：
+                 * - 后台垃圾文件清理任务
+                 * - 管理员告警
+                 */
+                Console.WriteLine(
+                    $"删除版本安装包目录失败：{ex.Message}"
+                );
+            }
 
             return NoContent();
         }
