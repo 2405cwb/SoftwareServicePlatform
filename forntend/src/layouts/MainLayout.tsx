@@ -38,7 +38,10 @@ function MainLayout() {
    * 页面也不会空白。
    */
   const [platformTitle, setPlatformTitle] = useState("软件服务管理平台");
-
+  /*
+   * 公司名称。
+   */
+  const [platformCompanyName, setPlatformCompanyName] = useState("");
   /*
    * 页面第一次打开时读取平台配置。
    */
@@ -48,7 +51,7 @@ function MainLayout() {
         const info = await getPlatformInfo();
 
         setPlatformTitle(info.title);
-
+        setPlatformCompanyName(info.companyName);
         /*
          * 同时修改浏览器标签页标题。
          */
@@ -163,7 +166,7 @@ function MainLayout() {
         <div className="header-left">
           <h1>{platformTitle}</h1>
 
-          <p>客户、软件版本与服务统一管理</p>
+          {platformCompanyName && <p>{platformCompanyName}</p>}
         </div>
 
         {/* 右侧当前用户 */}

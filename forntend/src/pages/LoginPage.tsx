@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-
+import { getPlatformInfo } from "../services/platform";
 /*
  * 后端登录成功返回的数据格式
  */
@@ -21,6 +21,27 @@ interface LoginResponse {
 }
 
 function LoginPage() {
+  /*
+   * ======================================
+   * 平台品牌配置
+   * ======================================
+   */
+
+  /*
+   * 平台标题。
+   *
+   * 后端配置还没有读取成功以前，
+   * 先显示默认标题。
+   */
+  const [platformTitle, setPlatformTitle] = useState("软件服务管理平台");
+
+  /*
+   * 公司名称。
+   *
+   * 如果没有配置，
+   * 就保持空字符串。
+   */
+  const [platformCompanyName, setPlatformCompanyName] = useState("");
   /*
    * 用户名
    */
@@ -45,7 +66,42 @@ function LoginPage() {
    * React Router 页面跳转
    */
   const navigate = useNavigate();
+  /*
+   * ======================================
+   * 加载平台配置
+   * ======================================
+   *
+   * 登录页面没有登录，
+   * 但 /api/platform/info
+   * 是 AllowAnonymous，
+   * 所以可以直接获取。
+   */
+  useEffect(() => {
+    async function loadPlatformInfo() {
+      try {
+        const info = await getPlatformInfo();
 
+        /*
+         * 平台标题。
+         */
+        setPlatformTitle(info.title);
+
+        /*
+         * 公司名称。
+         */
+        setPlatformCompanyName(info.companyName);
+
+        /*
+         * 同步修改浏览器标签页标题。
+         */
+        document.title = info.title;
+      } catch (error) {
+        console.error("加载平台配置失败：", error);
+      }
+    }
+
+    loadPlatformInfo();
+  }, []);
   /*
    * 登录
    */
@@ -140,13 +196,11 @@ function LoginPage() {
 
           <div className="login-brand-name">SOFTWARE SERVICE PLATFORM</div>
 
-          <h1>软件服务管理平台</h1>
-
-          <p className="login-brand-description">
-            统一管理客户、软件版本、安装包与服务流程，
-            让软件交付和售后支持更加清晰、高效。
-          </p>
-
+          <h1>{platformTitle}</h1>
+          {platformCompanyName && (
+            <div className="login-company-name">{platformCompanyName}</div>
+          )}
+        
           <div className="login-feature-list">
             <div className="login-feature-item">
               <span>01</span>
@@ -177,7 +231,10 @@ function LoginPage() {
 
             <h2>登录您的账号</h2>
 
-            <p className="login-tip">请输入账号信息进入软件服务管理平台</p>
+            <p className="login-tip">
+              请输入账号信息进入
+              {platformTitle}
+            </p>
 
             {/* 用户名 */}
             <div className="login-field">
@@ -223,7 +280,9 @@ function LoginPage() {
               {isLoggingIn ? "正在登录..." : "登录系统"}
             </button>
 
-            <div className="login-footer">Software Service Platform</div>
+            <div className="login-footer">
+              {platformCompanyName ? platformCompanyName : platformTitle}
+            </div>
           </div>
         </section>
       </div>
