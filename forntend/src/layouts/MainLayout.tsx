@@ -186,6 +186,7 @@ function MainLayout() {
           {hasRole("Admin", "Support", "Developer") && (
             <NavLink to="/versions">版本管理</NavLink>
           )}
+          {hasRole("Admin") && <NavLink to="/users">用户管理</NavLink>}
           {hasRole("Customer") && <NavLink to="/my-software">我的软件</NavLink>}
         </div>
 

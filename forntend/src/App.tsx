@@ -14,6 +14,7 @@ import VersionPage from "./pages/VersionPage";
 import ForbiddenPage from "./pages/ForbiddenPage";
 import HomeRedirect from "./components/HomeRedirect";
 import MySoftwarePage from "./pages/MySoftwarePage";
+import UserPage from "./pages/UserPage";
 function App() {
   return (
     <Routes>
@@ -26,6 +27,9 @@ function App() {
        * ===============================
        */}
       <Route element={<RequireAuth />}>
+        <Route element={<RequireRole allowedRoles={["Admin"]} />}>
+          <Route path="/users" element={<UserPage />} />
+        </Route>
         <Route element={<MainLayout />}>
           {
             <Route element={<RequireRole allowedRoles={["Customer"]} />}>
