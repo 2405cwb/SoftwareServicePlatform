@@ -118,13 +118,34 @@ Content-Type: application/json
   "allowDownload": true
 }
 
-### 客户软件信息绑定
-POST http://localhost:5108/api/customersoftwares
+
+### 注册账户
+POST http://localhost:5108/api/auth/register
 Content-Type: application/json
+
 {
-  "customerId": 9,
-  "softwareId": 1,
-  "remark": "测试绑定"
-}
-### 获取客户信息
-GET http://localhost:5108/api/customersoftwares?customerId=1
+  "username": "cwb",
+  "password": "12345678",
+  "displayName": "cwb",
+  "email": "testuser@example.com",
+  "phone": "13800138000",
+  "customerId": 12
+} 
+
+### 登录账户
+POST http://localhost:5108/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "cwb",
+  "password": "12345678"
+} 
+
+###jwt验证get
+GET http://localhost:5108/api/auth/me
+Authorization: Bearer
+
+
+###下载
+GET http://localhost:5108/api/softwareversions/1/package/download
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjEiLCJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1lIjoiY3diIiwiaHR0cDovL3NjaGVtYXMubWljcm9zb2Z0LmNvbS93cy8yMDA4LzA2L2lkZW50aXR5L2NsYWltcy9yb2xlIjoiQ3VzdG9tZXIiLCJkaXNwbGF5TmFtZSI6ImN3YiIsImN1c3RvbWVySWQiOiIxMiIsIm5iZiI6MTc4ODkzNzY0NSwiZXhwIjoxNzg4OTQ0ODQ1LCJpc3MiOiJTb2Z0d2FyZVNlcnZpY2VQbGF0Zm9ybSIsImF1ZCI6IlNvZnR3YXJlU2VydmljZVBsYXRmb3JtLkNsaWVudCJ9.z0Xzfg78t3T4UvbJTPIoRuAqpoKtCog4iY10rNgdSgg
