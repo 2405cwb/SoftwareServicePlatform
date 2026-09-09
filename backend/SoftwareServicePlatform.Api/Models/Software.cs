@@ -100,5 +100,10 @@
         /// 该软件拥有的全部版本
         /// </summary>
         public List<SoftwareVersion> Versions { get; set; } = new();
+
+        /// <summary>
+        /// 当前软件与客户之间的绑定关系
+        /// </summary>
+        public List<CustomerSoftware> CustomerSoftwares { get; set; } = new();
     }
 }

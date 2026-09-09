@@ -117,3 +117,14 @@ Content-Type: application/json
   "forceUpdate": false,
   "allowDownload": true
 }
+
+### 客户软件信息绑定
+POST http://localhost:5108/api/customersoftwares
+Content-Type: application/json
+{
+  "customerId": 9,
+  "softwareId": 1,
+  "remark": "测试绑定"
+}
+### 获取客户信息
+GET http://localhost:5108/api/customersoftwares?customerId=1
