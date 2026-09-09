@@ -2,7 +2,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SoftwareServicePlatform.Api.Data;
-using SoftwareServicePlatform.Api.Dtos.Auth;
 using SoftwareServicePlatform.Api.Models;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
@@ -10,6 +9,7 @@ using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
+using SoftwareServicePlatform.Api.Dtos.Auth;
 
 namespace SoftwareServicePlatform.Api.Controllers
 {

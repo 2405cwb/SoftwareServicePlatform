@@ -1,5 +1,5 @@
 @SoftwareServicePlatform.Api_HostAddress = http://localhost:5108
-@token = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjEiLCJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1lIjoiY3diIiwiaHR0cDovL3NjaGVtYXMubWljcm9zb2Z0LmNvbS93cy8yMDA4LzA2L2lkZW50aXR5L2NsYWltcy9yb2xlIjoiQ3VzdG9tZXIiLCJkaXNwbGF5TmFtZSI6ImN3YiIsImN1c3RvbWVySWQiOiI5IiwibmJmIjoxNzg4OTQ3MDg3LCJleHAiOjE3ODg5NTQyODcsImlzcyI6IlNvZnR3YXJlU2VydmljZVBsYXRmb3JtIiwiYXVkIjoiU29mdHdhcmVTZXJ2aWNlUGxhdGZvcm0uQ2xpZW50In0.ViE2hlJVx7R8o9bvfA0oRnsJh4gRrIbFeFNQNpP-kdM
+@token = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjMiLCJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1lIjoiYWRtaW4iLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJBZG1pbiIsImRpc3BsYXlOYW1lIjoiYWRtaW4iLCJjdXN0b21lcklkIjoiOSIsIm5iZiI6MTc4ODk0ODUyMCwiZXhwIjoxNzg4OTU1NzIwLCJpc3MiOiJTb2Z0d2FyZVNlcnZpY2VQbGF0Zm9ybSIsImF1ZCI6IlNvZnR3YXJlU2VydmljZVBsYXRmb3JtLkNsaWVudCJ9.1_1jVG2n9IoKZIYwduwd-iPrkDlSg-5VH7FBExHLlaM
 
 GET {{SoftwareServicePlatform.Api_HostAddress}}/weatherforecast/
 Accept: application/json
@@ -176,3 +176,31 @@ Content-Type: application/json
 ###获取用户列表
 GET http://localhost:5108/api/users
 Authorization: Bearer {{token}}
+
+
+### 创建开发人员账户
+POST http://localhost:5108/api/users
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "username": "developer01",
+  "password": "12345678",
+  "displayName": "测试开发人员",
+  "role": "Developer",
+  "email": "developer@example.com",
+  "phone": "13800138000"
+}
+
+### 修改账户
+PUT http://localhost:5108/api/users/5
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "displayName": "李工",
+  "role": "Support",
+  "email": "ligong@example.com",
+  "phone": "13800138001",
+  "isEnabled": false
+}
