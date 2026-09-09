@@ -1,5 +1,5 @@
 @SoftwareServicePlatform.Api_HostAddress = http://localhost:5108
-@token = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjMiLCJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1lIjoiYWRtaW4iLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJBZG1pbiIsImRpc3BsYXlOYW1lIjoiYWRtaW4iLCJjdXN0b21lcklkIjoiOSIsIm5iZiI6MTc4ODk0ODUyMCwiZXhwIjoxNzg4OTU1NzIwLCJpc3MiOiJTb2Z0d2FyZVNlcnZpY2VQbGF0Zm9ybSIsImF1ZCI6IlNvZnR3YXJlU2VydmljZVBsYXRmb3JtLkNsaWVudCJ9.1_1jVG2n9IoKZIYwduwd-iPrkDlSg-5VH7FBExHLlaM
+@token = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjEiLCJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1lIjoiY3diIiwiaHR0cDovL3NjaGVtYXMubWljcm9zb2Z0LmNvbS93cy8yMDA4LzA2L2lkZW50aXR5L2NsYWltcy9yb2xlIjoiQ3VzdG9tZXIiLCJkaXNwbGF5TmFtZSI6ImN3YiIsImN1c3RvbWVySWQiOiI5IiwibmJmIjoxNzg4OTUzNTE5LCJleHAiOjE3ODg5NjA3MTksImlzcyI6IlNvZnR3YXJlU2VydmljZVBsYXRmb3JtIiwiYXVkIjoiU29mdHdhcmVTZXJ2aWNlUGxhdGZvcm0uQ2xpZW50In0.bs7h4oR_GAks1mlYQjQ3Bxc1bcKhLzjhpxLlUWNiNas
 
 GET {{SoftwareServicePlatform.Api_HostAddress}}/weatherforecast/
 Accept: application/json
@@ -203,4 +203,17 @@ Content-Type: application/json
   "email": "ligong@example.com",
   "phone": "13800138001",
   "isEnabled": false
+}
+
+### 创建工单
+
+POST http://localhost:5108/api/tickets
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "softwareId": 1,
+  "title": "软件启动后提示数据库连接失败",
+  "description": "双击软件启动后提示数据库连接失败，目前无法进入主界面。",
+  "priority": "High"
 }
