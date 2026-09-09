@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { getPlatformInfo } from "../services/platform";
 
 /*
  * 当前登录用户的数据结构。
@@ -28,7 +30,36 @@ function MainLayout() {
    * 用于代码中主动跳转页面。
    */
   const navigate = useNavigate();
+  /*
+   * 平台标题。
+   *
+   * 先给默认值，
+   * 所以后端配置还没有加载回来时，
+   * 页面也不会空白。
+   */
+  const [platformTitle, setPlatformTitle] = useState("软件服务管理平台");
 
+  /*
+   * 页面第一次打开时读取平台配置。
+   */
+  useEffect(() => {
+    async function loadPlatformInfo() {
+      try {
+        const info = await getPlatformInfo();
+
+        setPlatformTitle(info.title);
+
+        /*
+         * 同时修改浏览器标签页标题。
+         */
+        document.title = info.title;
+      } catch (error) {
+        console.error("加载平台配置失败：", error);
+      }
+    }
+
+    loadPlatformInfo();
+  }, []);
   /*
    * ============================
    * 读取当前登录用户
@@ -130,7 +161,7 @@ function MainLayout() {
       <div className="header">
         {/* 左侧平台名称 */}
         <div className="header-left">
-          <h1>软件服务管理平台</h1>
+          <h1>{platformTitle}</h1>
 
           <p>客户、软件版本与服务统一管理</p>
         </div>
