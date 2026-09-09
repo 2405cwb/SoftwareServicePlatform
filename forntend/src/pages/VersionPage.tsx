@@ -15,6 +15,12 @@ interface Software {
   id: number;
   name: string;
   code: string;
+
+  // 软件是否启用
+  isEnabled: boolean;
+
+  // 软件是否允许下载
+  allowDownload: boolean;
 }
 
 /**
@@ -604,10 +610,23 @@ function VersionPage() {
       alert("当前版本尚未上传安装包");
       return;
     }
+    const software = softwares.find((x) => x.id === softwareVersion.softwareId);
 
-    /**
-     * 不允许下载
-     */
+    if (!software) {
+      alert("所属软件不存在");
+      return;
+    }
+
+    if (!software.isEnabled) {
+      alert("当前软件已停用");
+      return;
+    }
+
+    if (!software.allowDownload) {
+      alert("当前软件已禁止下载");
+      return;
+    }
+
     if (!softwareVersion.allowDownload) {
       alert("当前版本不允许下载");
       return;
@@ -637,7 +656,22 @@ function VersionPage() {
 
     document.body.removeChild(link);
   }
+  /**
+   * 判断某个版本最终是否允许下载
+   */
+  function canDownloadVersion(softwareVersion: SoftwareVersion) {
+    const software = softwares.find((x) => x.id === softwareVersion.softwareId);
 
+    if (!software) {
+      return false;
+    }
+
+    return (
+      software.isEnabled &&
+      software.allowDownload &&
+      softwareVersion.allowDownload
+    );
+  }
   return (
     <div className="content">
       {/* ================= 页面标题 ================= */}
@@ -973,7 +1007,7 @@ function VersionPage() {
               {version.packageFileName && (
                 <button
                   className="normal-button"
-                  disabled={!version.allowDownload}
+                  disabled={!canDownloadVersion(version)}
                   onClick={() => downloadPackage(version)}
                 >
                   下载

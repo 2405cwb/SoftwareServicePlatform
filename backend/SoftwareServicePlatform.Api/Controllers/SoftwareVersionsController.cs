@@ -646,12 +646,55 @@ namespace SoftwareServicePlatform.Api.Controllers
              * 1. 查找软件版本
              */
             var softwareVersion =
-                await _dbContext.SoftwareVersions
-                    .FindAsync(id);
+     await _dbContext.SoftwareVersions
+         .Include(x => x.Software)
+         .FirstOrDefaultAsync(x => x.Id == id);
 
             if (softwareVersion == null)
             {
                 return NotFound("软件版本不存在");
+            }
+
+            /*
+   * 所属软件不存在。
+   *
+   * 正常情况下因为外键关系不应该出现，
+   * 但接口仍然做保护。
+   */
+            if (softwareVersion.Software == null)
+            {
+                return BadRequest("所属软件不存在");
+            }
+
+            /*
+             * 软件已经被停用。
+             *
+             * Software.IsEnabled 是软件级总开关。
+             * 一旦软件停用，下面所有版本都不能下载。
+             */
+            if (!softwareVersion.Software.IsEnabled)
+            {
+                return BadRequest("当前软件已停用，禁止下载安装包");
+            }
+
+            /*
+             * 软件级禁止下载。
+             *
+             * 即使某个版本自己的 AllowDownload = true，
+             * 也不能突破软件级总开关。
+             */
+            if (!softwareVersion.Software.AllowDownload)
+            {
+                return BadRequest("当前软件已禁止下载");
+            }
+
+            /*
+             * 软件允许下载后，
+             * 再判断当前具体版本是否允许下载。
+             */
+            if (!softwareVersion.AllowDownload)
+            {
+                return BadRequest("当前版本不允许下载");
             }
 
             /*
