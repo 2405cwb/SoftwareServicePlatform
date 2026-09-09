@@ -546,5 +546,356 @@ namespace SoftwareServicePlatform.Api.Controllers
                 }
             );
         }
+
+        /// <summary>
+        /// 查询当前用户有权限看到的工单。
+        ///
+        /// GET /api/tickets
+        ///
+        /// 不同角色看到的数据范围不同：
+        ///
+        /// Admin
+        ///     查看全部工单
+        ///
+        /// Support
+        ///     查看全部工单
+        ///
+        /// Developer
+        ///     只查看分配给自己的工单
+        ///
+        /// Customer
+        ///     只查看自己所属客户的工单
+        /// </summary>
+        [HttpGet]
+        [Authorize(
+            Roles = "Admin,Support,Developer,Customer"
+        )]
+        public async Task<IActionResult> GetTickets()
+        {
+            /*
+             * ==========================================
+             * 1. 从 JWT 获取当前用户ID
+             * ==========================================
+             */
+
+            var userIdText =
+                User.FindFirstValue(
+                    ClaimTypes.NameIdentifier
+                );
+
+
+            if (!int.TryParse(
+                    userIdText,
+                    out var currentUserId))
+            {
+                return Unauthorized(
+                    "无法获取当前登录用户"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 2. 查询当前用户最新数据库状态
+             * ==========================================
+             *
+             * 不完全相信 JWT 中登录时保存的旧状态。
+             *
+             * 例如：
+             *
+             * 用户登录之后，
+             * 管理员把这个账号停用了。
+             *
+             * JWT 可能还没有过期，
+             * 但数据库中的 IsEnabled 已经变成 false。
+             */
+
+            var currentUser =
+                await _dbContext.Users
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        x => x.Id == currentUserId
+                    );
+
+
+            if (currentUser == null)
+            {
+                return Unauthorized(
+                    "当前用户不存在"
+                );
+            }
+
+
+            if (!currentUser.IsEnabled)
+            {
+                return Unauthorized(
+                    "当前用户已停用"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 3. 创建最基础的 Ticket 查询
+             * ==========================================
+             *
+             * IQueryable 可以理解成：
+             *
+             * 现在只是在“组装SQL查询条件”，
+             * 还没有真正去 PostgreSQL 查询。
+             *
+             * 直到后面的 ToListAsync()
+             * 才真正执行 SQL。
+             */
+
+            IQueryable<Ticket> query =
+                _dbContext.Tickets
+                    .AsNoTracking();
+
+
+            /*
+             * ==========================================
+             * 4. 根据角色限制查询范围
+             * ==========================================
+             */
+
+            switch (currentUser.Role)
+            {
+                /*
+                 * ------------------------------
+                 * Admin
+                 * ------------------------------
+                 *
+                 * 管理员可以看到所有工单。
+                 *
+                 * 所以这里什么条件都不用加。
+                 */
+                case "Admin":
+                    break;
+
+
+                /*
+                 * ------------------------------
+                 * Support
+                 * ------------------------------
+                 *
+                 * 售后需要处理客户问题，
+                 * 所以也可以看到所有工单。
+                 */
+                case "Support":
+                    break;
+
+
+                /*
+                 * ------------------------------
+                 * Developer
+                 * ------------------------------
+                 *
+                 * 开发人员目前只看到
+                 * 已经分配给自己的工单。
+                 */
+                case "Developer":
+
+                    query =
+                        query.Where(
+                            x =>
+                                x.AssignedToUserId
+                                ==
+                                currentUser.Id
+                        );
+
+                    break;
+
+
+                /*
+                 * ------------------------------
+                 * Customer
+                 * ------------------------------
+                 *
+                 * 客户只能看到自己公司的工单。
+                 */
+                case "Customer":
+
+                    /*
+                     * Customer 用户必须绑定 Customer。
+                     */
+                    if (!currentUser.CustomerId.HasValue)
+                    {
+                        return Unauthorized(
+                            "当前用户未绑定客户"
+                        );
+                    }
+
+
+                    /*
+                     * 再确认客户仍然存在并且启用。
+                     */
+                    var customerExists =
+                        await _dbContext.Customers
+                            .AsNoTracking()
+                            .AnyAsync(
+                                x =>
+                                    x.Id ==
+                                    currentUser.CustomerId.Value
+                                    &&
+                                    x.IsEnabled
+                            );
+
+
+                    if (!customerExists)
+                    {
+                        return Unauthorized(
+                            "所属客户不存在或已停用"
+                        );
+                    }
+
+
+                    /*
+                     * 最关键的客户数据隔离：
+                     *
+                     * WHERE CustomerId =
+                     * 当前登录用户所属 CustomerId
+                     */
+                    query =
+                        query.Where(
+                            x =>
+                                x.CustomerId
+                                ==
+                                currentUser.CustomerId.Value
+                        );
+
+                    break;
+
+
+                /*
+                 * 其他角色全部拒绝。
+                 *
+                 * 比如当前 Sales 暂时没有工单权限。
+                 */
+                default:
+
+                    return Forbid();
+            }
+
+
+            /*
+             * ==========================================
+             * 5. 查询工单数据
+             * ==========================================
+             *
+             * 这里不直接：
+             *
+             * return Ok(ticket);
+             *
+             * 而是 Select 出前端真正需要的数据。
+             *
+             * 好处：
+             *
+             * 1. 不会把整个 EF 实体直接暴露出去
+             * 2. 不会产生导航属性循环 JSON
+             * 3. 前端拿到的数据结构更加稳定
+             */
+
+            var tickets =
+                await query
+                    /*
+                     * 最新工单排最前面。
+                     */
+                    .OrderByDescending(
+                        x => x.CreatedAt
+                    )
+
+                    .Select(
+                        x => new
+                        {
+                            /*
+                             * 工单基本信息
+                             */
+                            x.Id,
+
+                            x.TicketNo,
+
+                            x.Title,
+
+                            x.Description,
+
+                            x.Status,
+
+                            x.Priority,
+
+
+                            /*
+                             * 客户信息
+                             */
+                            x.CustomerId,
+
+                            CustomerName =
+                                x.Customer.Name,
+
+
+                            /*
+                             * 软件信息
+                             */
+                            x.SoftwareId,
+
+                            SoftwareName =
+                                x.Software.Name,
+
+
+                            /*
+                             * 创建人信息
+                             */
+                            x.CreatedByUserId,
+
+                            CreatedByName =
+                                x.CreatedByUser.DisplayName,
+
+                            CreatedByUsername =
+                                x.CreatedByUser.Username,
+
+
+                            /*
+                             * 当前处理人。
+                             *
+                             * 新工单可能还没有处理人，
+                             * 所以 AssignedToUser 可能为 null。
+                             */
+                            x.AssignedToUserId,
+
+                            AssignedToName =
+                                x.AssignedToUser == null
+                                    ? null
+                                    : x.AssignedToUser.DisplayName,
+
+
+                            /*
+                             * 时间
+                             */
+                            x.CreatedAt,
+
+                            x.UpdatedAt,
+
+                            x.ResolvedAt
+                        }
+                    )
+
+                    /*
+                     * 到这里才真正向 PostgreSQL
+                     * 发起查询。
+                     */
+                    .ToListAsync();
+
+
+            /*
+             * ==========================================
+             * 6. 返回工单列表
+             * ==========================================
+             */
+
+            return Ok(
+                tickets
+            );
+        }
+
     }
 }
