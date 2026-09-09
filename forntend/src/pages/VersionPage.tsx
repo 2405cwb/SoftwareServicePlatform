@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import PageHeader from "../components/PageHeader";
 import SearchBar from "../components/SearchBar";
-
+import ConfirmDeleteButton from "../components/ConfirmDeleteButton";
 /**
  * 软件信息。
  *
@@ -392,7 +392,33 @@ function VersionPage() {
 
     setShowVersionForm(true);
   }
+  /**
+   * 删除软件版本
+   *
+   * 删除确认已经由 ConfirmDeleteButton 负责，
+   * 所以这里不需要再调用 window.confirm()。
+   */
+  async function deleteVersion(id: number) {
+    try {
+      const response = await fetch(`/api/softwareversions/${id}`, {
+        method: "DELETE",
+      });
 
+      // 后端删除失败
+      if (!response.ok) {
+        const errorText = await response.text();
+
+        throw new Error(errorText || `删除版本失败：${response.status}`);
+      }
+
+      // 删除成功以后重新加载版本列表
+      await loadVersions();
+    } catch (error) {
+      console.error("删除版本失败：", error);
+
+      alert("删除版本失败：" + String(error));
+    }
+  }
   return (
     <div className="content">
       {/* ================= 页面标题 ================= */}
@@ -581,12 +607,21 @@ function VersionPage() {
 
             <div className="table-actions">
               {/* 下一步实现 */}
-              <button
-                className="edit-button"
-                onClick={() => editVersion(version)}
-              >
-                编辑
-              </button>
+              <div className="table-actions">
+                {/* 编辑 */}
+                <button
+                  className="edit-button"
+                  onClick={() => editVersion(version)}
+                >
+                  编辑
+                </button>
+
+                {/* 删除 */}
+                <ConfirmDeleteButton
+                  message={`确定要删除版本 ${version.version} 吗？`}
+                  onConfirm={() => deleteVersion(version.id)}
+                />
+              </div>
             </div>
           </div>
         ))}
