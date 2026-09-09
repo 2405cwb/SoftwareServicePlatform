@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SoftwareServicePlatform.Api.Data;
@@ -11,9 +12,11 @@ using SoftwareServicePlatform.Api.Data;
 namespace SoftwareServicePlatform.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260908114613_AddSoftwareVersion")]
+    partial class AddSoftwareVersion
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -187,24 +190,6 @@ namespace SoftwareServicePlatform.Api.Migrations
 
                     b.Property<bool>("IsPublished")
                         .HasColumnType("boolean");
-
-                    b.Property<string>("PackageFileName")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<long>("PackageFileSize")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("PackageRelativePath")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("PackageSha256")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("PackageUploadedAt")
-                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime?>("PublishedAt")
                         .HasColumnType("timestamp with time zone");

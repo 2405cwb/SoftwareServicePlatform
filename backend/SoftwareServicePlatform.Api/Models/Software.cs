@@ -95,5 +95,10 @@
         /// 最后修改时间
         /// </summary>
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+        /// <summary>
+        /// 该软件拥有的全部版本
+        /// </summary>
+        public List<SoftwareVersion> Versions { get; set; } = new();
     }
 }

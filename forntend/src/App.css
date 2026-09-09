@@ -433,3 +433,75 @@
 .software-table-row:hover {
   background-color: #fafafa;
 }
+
+
+
+/* =========================
+   软件版本管理表格
+   ========================= */
+
+.version-table {
+  margin-top: 10px;
+  border: 1px solid #dddddd;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.version-table-header,
+.version-table-row {
+  display: grid;
+
+  grid-template-columns:
+    2fr
+    100px
+    110px
+    2fr
+    100px
+    100px
+    100px
+    220px
+    420px;
+
+  align-items: center;
+
+  min-width: 1500px;
+}
+
+.version-table-header {
+  background-color: #f0f2f5;
+  font-weight: bold;
+  border-bottom: 1px solid #dddddd;
+}
+
+.version-table-header > div,
+.version-table-row > div {
+  padding: 12px 10px;
+}
+
+.version-table-row {
+  border-bottom: 1px solid #eeeeee;
+}
+
+.version-table-row:last-child {
+  border-bottom: none;
+}
+
+.version-table-row:hover {
+  background-color: #fafafa;
+}
+
+/* 安装包选择后的文件信息 */
+.package-file-info {
+  margin-top: 12px;
+  padding: 10px;
+  background-color: #f5f5f5;
+  border-radius: 6px;
+  line-height: 1.8;
+}
+
+/* 安装包大小辅助文字 */
+.package-size {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #888888;
+}
