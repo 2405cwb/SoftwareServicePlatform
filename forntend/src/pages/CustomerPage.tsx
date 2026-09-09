@@ -3,7 +3,7 @@ import StatusBadge from "../components/StatusBadge";
 import ConfirmDeleteButton from "../components/ConfirmDeleteButton";
 import PageHeader from "../components/PageHeader";
 import SearchBar from "../components/SearchBar";
-
+import { apiFetch } from "../services/api";
 interface Customer {
   id: number;
 
@@ -137,7 +137,7 @@ function CustomerPage() {
       let response: Response;
       if (editingCustomerId === null) {
         //新增
-        response = await fetch("/api/customers", {
+        response = await apiFetch("/api/customers", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -164,7 +164,7 @@ function CustomerPage() {
           }),
         });
       } else {
-        response = await fetch(`/api/customers/${editingCustomerId}`, {
+        response = await apiFetch(`/api/customers/${editingCustomerId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -208,7 +208,7 @@ function CustomerPage() {
 
   async function loadCustomers() {
     try {
-      const response = await fetch("/api/customers");
+      const response = await apiFetch("/api/customers");
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -220,7 +220,7 @@ function CustomerPage() {
   }
   async function deleteCustomer(id: number) {
     try {
-      const response = await fetch(`/api/customers/${id}`, {
+      const response = await apiFetch(`/api/customers/${id}`, {
         method: "DELETE",
       });
       if (!response.ok) {
@@ -313,7 +313,7 @@ function CustomerPage() {
       /*
        * 1. 查询系统全部软件
        */
-      const softwareResponse = await fetch("/api/softwares");
+      const softwareResponse = await apiFetch("/api/softwares");
 
       if (!softwareResponse.ok) {
         throw new Error(`获取软件列表失败：${softwareResponse.status}`);
@@ -326,7 +326,7 @@ function CustomerPage() {
       /*
        * 2. 查询当前客户已经绑定的软件
        */
-      const bindingResponse = await fetch(
+      const bindingResponse = await apiFetch(
         `/api/customersoftwares?customerId=${customer.id}`,
       );
 
@@ -430,7 +430,7 @@ function CustomerPage() {
           shouldEnabled &&
           (existingBinding === undefined || !existingBinding.isEnabled)
         ) {
-          const response = await fetch("/api/customersoftwares", {
+          const response = await apiFetch("/api/customersoftwares", {
             method: "POST",
 
             headers: {
@@ -469,7 +469,7 @@ function CustomerPage() {
           existingBinding !== undefined &&
           existingBinding.isEnabled
         ) {
-          const response = await fetch(
+          const response = await apiFetch(
             `/api/customersoftwares/${existingBinding.id}`,
             {
               method: "DELETE",

@@ -119,7 +119,9 @@ function LoginPage() {
       /*
        * 登录成功进入后台
        */
-      navigate("/customers");
+      navigate("/", {
+        replace: true,
+      });
     } catch (error) {
       console.error("登录请求失败：", error);
 

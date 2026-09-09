@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import PageHeader from "../components/PageHeader";
 import SearchBar from "../components/SearchBar";
 import ConfirmDeleteButton from "../components/ConfirmDeleteButton";
+import { apiFetch } from "../services/api";
 /**
  * 软件信息。
  *
@@ -211,7 +212,7 @@ function VersionPage() {
    */
   async function loadSoftwares() {
     try {
-      const response = await fetch("/api/softwares");
+      const response = await apiFetch("/api/softwares");
 
       if (!response.ok) {
         throw new Error(`获取软件列表失败：${response.status}`);
@@ -230,7 +231,7 @@ function VersionPage() {
    */
   async function loadVersions() {
     try {
-      const response = await fetch("/api/softwareversions");
+      const response = await apiFetch("/api/softwareversions");
 
       if (!response.ok) {
         throw new Error(`获取版本列表失败：${response.status}`);
@@ -367,7 +368,7 @@ function VersionPage() {
        * 新增
        */
       if (editingVersionId === null) {
-        response = await fetch("/api/softwareversions", {
+        response = await apiFetch("/api/softwareversions", {
           method: "POST",
 
           headers: {
@@ -380,7 +381,7 @@ function VersionPage() {
         /**
          * 编辑
          */
-        response = await fetch(`/api/softwareversions/${editingVersionId}`, {
+        response = await apiFetch(`/api/softwareversions/${editingVersionId}`, {
           method: "PUT",
 
           headers: {
@@ -488,7 +489,7 @@ function VersionPage() {
        */
       formData.append("file", selectedPackage);
 
-      const response = await fetch(
+      const response = await apiFetch(
         `/api/softwareversions/${softwareVersionId}/package`,
         {
           method: "POST",
@@ -548,7 +549,7 @@ function VersionPage() {
    */
   async function deleteVersion(id: number) {
     try {
-      const response = await fetch(`/api/softwareversions/${id}`, {
+      const response = await apiFetch(`/api/softwareversions/${id}`, {
         method: "DELETE",
       });
 

@@ -3,6 +3,7 @@ import StatusBadge from "../components/StatusBadge";
 import ConfirmDeleteButton from "../components/ConfirmDeleteButton";
 import PageHeader from "../components/PageHeader";
 import SearchBar from "../components/SearchBar";
+import { apiFetch } from "../services/api";
 /**
  * 软件数据类型
  *
@@ -115,7 +116,7 @@ function SoftwarePage() {
    */
   async function loadSoftwares() {
     try {
-      const response = await fetch("/api/softwares");
+      const response = await apiFetch("/api/softwares");
 
       // HTTP 不是 2xx 时认为请求失败
       if (!response.ok) {
@@ -258,7 +259,7 @@ function SoftwarePage() {
        * -------------------------
        */
       if (editingSoftwareId === null) {
-        response = await fetch("/api/softwares", {
+        response = await apiFetch("/api/softwares", {
           method: "POST",
 
           headers: {
@@ -297,7 +298,7 @@ function SoftwarePage() {
          * PUT /api/softwares/3
          */
 
-        response = await fetch(`/api/softwares/${editingSoftwareId}`, {
+        response = await apiFetch(`/api/softwares/${editingSoftwareId}`, {
           method: "PUT",
 
           headers: {
@@ -379,7 +380,7 @@ function SoftwarePage() {
     // 删除属于危险操作，先让用户确认
 
     try {
-      const response = await fetch(`/api/softwares/${id}`, {
+      const response = await apiFetch(`/api/softwares/${id}`, {
         method: "DELETE",
       });
 

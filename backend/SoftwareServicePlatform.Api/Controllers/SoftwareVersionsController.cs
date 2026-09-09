@@ -3,14 +3,17 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SoftwareServicePlatform.Api.Data;
 using SoftwareServicePlatform.Api.Models;
-using System.Security.Cryptography;
-using Microsoft.AspNetCore.Authorization;
+using System.Security.Cryptography; 
 using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 namespace SoftwareServicePlatform.Api.Controllers
 {
     /// <summary>
     /// 软件版本管理接口
     /// </summary>
+    [Authorize(
+      Roles = "Admin,Support,Developer"
+  )]
     [ApiController]
     [Route("api/[controller]")]
     public class SoftwareVersionsController : ControllerBase
@@ -643,8 +646,7 @@ namespace SoftwareServicePlatform.Api.Controllers
 ///
 /// 客户用户：
 /// 必须拥有当前软件的有效绑定关系。
-/// </summary>
-[Authorize]
+/// </summary> 
 [HttpGet("{id}/package/download")]
 public async Task<IActionResult> DownloadPackage(int id)
 {

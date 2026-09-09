@@ -35,7 +35,14 @@ builder.WebHost.ConfigureKestrel(
 // Add services to the container.
 
 builder.Services.AddControllers();
-
+/*
+ * 下载票据暂时保存在服务器内存中。
+ *
+ * 客户点击下载时：
+ * JWT -> 申请短时 ticket
+ * ticket -> 下载大文件
+ */
+builder.Services.AddMemoryCache();
 /*
  * 注册密码 Hash 服务。
  *
