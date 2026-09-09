@@ -37,8 +37,7 @@ namespace SoftwareServicePlatform.Api.Data
  * Customer
  *    1
  *    ↓
- *    N
-<<<<<<< Updated upstream
+ *    N 
  * CustomerSoftware
  */
             modelBuilder.Entity<CustomerSoftware>()
