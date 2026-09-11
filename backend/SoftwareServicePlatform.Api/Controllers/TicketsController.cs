@@ -896,6 +896,291 @@ namespace SoftwareServicePlatform.Api.Controllers
                 tickets
             );
         }
+        /// <summary>
+        /// 分配工单。
+        ///
+        /// PUT /api/tickets/{id}/assign
+        ///
+        /// 只有：
+        /// Admin
+        /// Support
+        ///
+        /// 可以分配工单。
+        /// </summary>
+        [HttpPut("{id}/assign")]
+        [Authorize(Roles = "Admin,Support,Developer")]
+        public async Task<IActionResult> AssignTicket(
+            int id,
+            AssignTicketRequest request)
+        {
+            /*
+             * ==========================================
+             * 1. 检查工单ID
+             * ==========================================
+             */
 
+            if (id <= 0)
+            {
+                return BadRequest(
+                    "工单ID无效"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 2. 检查处理人ID
+             * ==========================================
+             */
+
+            if (request.AssignedToUserId <= 0)
+            {
+                return BadRequest(
+                    "请选择工单处理人"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 3. 查询工单
+             * ==========================================
+             *
+             * 注意这里不能使用 AsNoTracking()。
+             *
+             * 因为等一下我们需要修改：
+             *
+             * AssignedToUserId
+             * Status
+             * UpdatedAt
+             *
+             * 并保存数据库。
+             */
+
+            var ticket =
+                await _dbContext.Tickets
+                    .FirstOrDefaultAsync(
+                        x => x.Id == id
+                    );
+
+
+            if (ticket == null)
+            {
+                return NotFound(
+                    "工单不存在"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 4. 已关闭的工单不能再分配
+             * ==========================================
+             */
+
+            if (ticket.Status == "Closed")
+            {
+                return BadRequest(
+                    "已关闭的工单不能重新分配"
+                );
+            }
+
+
+            /*
+             * 已经解决的工单也暂时不允许直接重新分配。
+             *
+             * 后面如果需要“重新打开工单”，
+             * 我们会单独设计 Reopen 接口。
+             */
+            if (ticket.Status == "Resolved")
+            {
+                return BadRequest(
+                    "已解决的工单不能直接重新分配"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 5. 查询准备分配给的员工
+             * ==========================================
+             */
+
+            var assignedUser =
+                await _dbContext.Users
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        x =>
+                            x.Id ==
+                            request.AssignedToUserId
+                    );
+
+
+            if (assignedUser == null)
+            {
+                return BadRequest(
+                    "所选处理人不存在"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 6. 检查处理人账号是否启用
+             * ==========================================
+             */
+
+            if (!assignedUser.IsEnabled)
+            {
+                return BadRequest(
+                    "所选处理人账号已停用"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 7. 检查处理人角色
+             * ==========================================
+             *
+             * 当前第一版只允许：
+             *
+             * Support
+             * Developer
+             *
+             * 作为工单处理人。
+             *
+             * Customer 显然不能处理工单。
+             * Sales 当前也不参与技术工单处理。
+             */
+
+            var allowedRoles =
+                new[]
+                {
+            "Support",
+            "Developer"
+                };
+
+
+            if (!allowedRoles.Contains(
+                    assignedUser.Role))
+            {
+                return BadRequest(
+                    "工单只能分配给售后人员或开发人员"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 8. 修改工单处理人
+             * ==========================================
+             */
+
+            ticket.AssignedToUserId =
+                assignedUser.Id;
+
+
+            /*
+             * 工单只要被正式分配，
+             * 就从：
+             *
+             * Pending
+             *
+             * 进入：
+             *
+             * Processing
+             */
+            ticket.Status =
+                "Processing";
+
+
+            /*
+             * 更新时间。
+             */
+            ticket.UpdatedAt =
+                DateTime.UtcNow;
+
+
+            /*
+             * ==========================================
+             * 9. 保存数据库
+             * ==========================================
+             */
+
+            await _dbContext.SaveChangesAsync();
+
+
+            /*
+             * ==========================================
+             * 10. 查询关联信息
+             * ==========================================
+             *
+             * 这里为了返回更友好的结果，
+             * 顺手把 Customer 和 Software 名称取出来。
+             */
+
+            var customer =
+                await _dbContext.Customers
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        x => x.Id == ticket.CustomerId
+                    );
+
+
+            var software =
+                await _dbContext.Softwares
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        x => x.Id == ticket.SoftwareId
+                    );
+
+
+            /*
+             * ==========================================
+             * 11. 返回结果
+             * ==========================================
+             */
+
+            return Ok(
+                new
+                {
+                    message =
+                        "工单分配成功",
+
+                    ticket.Id,
+
+                    ticket.TicketNo,
+
+                    ticket.Title,
+
+                    ticket.Status,
+
+                    ticket.Priority,
+
+                    ticket.CustomerId,
+
+                    customerName =
+                        customer?.Name
+                        ?? string.Empty,
+
+                    ticket.SoftwareId,
+
+                    softwareName =
+                        software?.Name
+                        ?? string.Empty,
+
+                    ticket.AssignedToUserId,
+
+                    assignedToName =
+                        assignedUser.DisplayName,
+
+                    assignedToRole =
+                        assignedUser.Role,
+
+                    ticket.UpdatedAt
+                }
+            );
+        }
     }
 }
