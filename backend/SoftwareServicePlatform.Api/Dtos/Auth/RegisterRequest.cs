@@ -28,12 +28,15 @@
         public string DisplayName { get; set; } = string.Empty;
 
         /// <summary>
-        /// 所属客户ID
+        /// 客户编码。
         ///
-        /// 当前注册接口先用于创建客户用户，
-        /// 所以必须指定客户。
+        /// 例如：
+        /// WH001
+        ///
+        /// 注册用户不直接填写数据库 CustomerId，
+        /// 后端根据客户编码找到对应客户。
         /// </summary>
-        public int CustomerId { get; set; }
+        public string CustomerCode { get; set; } = string.Empty;
 
         /// <summary>
         /// 邮箱

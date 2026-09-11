@@ -969,11 +969,62 @@ function TicketPage() {
 
     try {
       setIsSubmittingRecord(true);
+      /*
+       * 调用后端新增处理记录接口。
+       *
+       * 注意：
+       * 这里必须是 POST。
+       *
+       * 如果不写 method，
+       * fetch 默认就是 GET，
+       * 那就只是在查询时间线，
+       * 根本不会新增记录。
+       */
       const response = await apiFetch(
         `/api/tickets/${selectedTicket.id}/records`,
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type": "application/json",
+          },
+
+          body: JSON.stringify({
+            /*
+             * 回复内容。
+             */
+            content: recordContent.trim(),
+
+            /*
+             * Customer 永远不能创建内部记录。
+             *
+             * Admin / Support / Developer
+             * 根据复选框决定。
+             */
+            isInternal: isCustomer ? false : recordIsInternal,
+          }),
+        },
       );
+
       /*
-       * 先创建 TicketRecord。
+       * 必须先判断 HTTP 是否成功。
+       *
+       * 例如：
+       *
+       * 400 内容为空
+       * 403 没有权限
+       * 401 登录失效
+       */
+      if (!response.ok) {
+        const errorText = await response.text();
+
+        throw new Error(errorText || `提交处理记录失败：${response.status}`);
+      }
+
+      /*
+       * 后端返回刚创建的 TicketRecord。
+       *
+       * result.id 后面还要给附件使用。
        */
       const result = await response.json();
 

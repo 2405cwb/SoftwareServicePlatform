@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { getPlatformInfo } from "../services/platform";
 /*
  * 后端登录成功返回的数据格式
@@ -200,7 +200,7 @@ function LoginPage() {
           {platformCompanyName && (
             <div className="login-company-name">{platformCompanyName}</div>
           )}
-        
+
           <div className="login-feature-list">
             <div className="login-feature-item">
               <span>01</span>
@@ -279,7 +279,10 @@ function LoginPage() {
             >
               {isLoggingIn ? "正在登录..." : "登录系统"}
             </button>
-
+            <div className="register-login-link">
+              还没有账号？
+              <Link to="/register">注册客户账号</Link>
+            </div>
             <div className="login-footer">
               {platformCompanyName ? platformCompanyName : platformTitle}
             </div>
