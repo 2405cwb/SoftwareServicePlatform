@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { getPlatformInfo } from "../services/platform";
 /*
  * 后端登录成功返回的数据格式
@@ -58,6 +58,13 @@ function LoginPage() {
   const [errorMessage, setErrorMessage] = useState("");
 
   /*
+   * 用于显示：
+   *
+   * 注册成功，请登录
+   */
+  const [successMessage, setSuccessMessage] = useState("");
+
+  /*
    * 是否正在登录
    */
   const [isLoggingIn, setIsLoggingIn] = useState(false);
@@ -66,6 +73,23 @@ function LoginPage() {
    * React Router 页面跳转
    */
   const navigate = useNavigate();
+
+  /*
+   * 获取上一个页面传过来的路由状态。
+   *
+   * 注册成功以后 RegisterPage 会传：
+   *
+   * {
+   *   registered: true,
+   *   username: "cwb"
+   * }
+   */
+  const location = useLocation();
+
+  const registerState = location.state as {
+    registered?: boolean;
+    username?: string;
+  } | null;
   /*
    * ======================================
    * 加载平台配置
@@ -101,6 +125,34 @@ function LoginPage() {
     }
 
     loadPlatformInfo();
+  }, []);
+
+  /*
+   * ======================================
+   * 处理注册成功后的跳转
+   * ======================================
+   */
+  useEffect(() => {
+    if (!registerState?.registered) {
+      return;
+    }
+
+    /*
+     * 自动填入刚注册的用户名。
+     */
+    if (registerState.username) {
+      setUsername(registerState.username);
+    }
+
+    setSuccessMessage("注册成功，请输入密码登录");
+
+    /*
+     * 清掉 history.state。
+     *
+     * 否则用户刷新登录页时，
+     * 可能再次看到“注册成功”提示。
+     */
+    window.history.replaceState({}, document.title);
   }, []);
   /*
    * 登录
@@ -144,21 +196,41 @@ function LoginPage() {
       });
 
       /*
-       * 获取后端 JSON
-       */
-      const data = await response.json();
-
-      /*
+       * ======================================
        * 登录失败
+       * ======================================
+       *
+       * 后端当前登录失败返回的是普通字符串：
+       *
+       * "用户名或密码错误"
+       * "当前用户已停用"
+       * "所属客户已停用"
+       *
+       * 所以失败时不能直接 response.json()，
+       * 否则会因为 JSON 解析失败进入 catch，
+       * 最终被误认为“服务器连接失败”。
        */
       if (!response.ok) {
-        setErrorMessage(data.message || data.title || "登录失败");
+        const errorText = await response.text();
+
+        setErrorMessage(errorText || `登录失败：${response.status}`);
 
         return;
       }
 
       /*
-       * 转成登录返回类型
+       * 登录成功时后端返回的是 JSON：
+       *
+       * {
+       *   message,
+       *   token,
+       *   user
+       * }
+       */
+      const data = await response.json();
+
+      /*
+       * 转成登录返回类型。
        */
       const loginResult = data as LoginResponse;
 
@@ -266,7 +338,10 @@ function LoginPage() {
                 }}
               />
             </div>
-
+            {/* 注册成功提示 */}
+            {successMessage && (
+              <div className="login-success">{successMessage}</div>
+            )}
             {/* 错误提示 */}
             {errorMessage && <div className="login-error">{errorMessage}</div>}
 

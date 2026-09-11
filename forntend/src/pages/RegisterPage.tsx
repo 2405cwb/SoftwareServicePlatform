@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 function RegisterPage() {
   const navigate = useNavigate();
+
+ 
 
   const [customerCode, setCustomerCode] = useState("");
 
@@ -19,6 +21,8 @@ function RegisterPage() {
   const [phone, setPhone] = useState("");
 
   const [errorMessage, setErrorMessage] = useState("");
+
+  
 
   const [isRegistering, setIsRegistering] = useState(false);
 
@@ -121,15 +125,22 @@ function RegisterPage() {
       }
 
       /*
-       * 注册成功以后不自动登录。
+       * 注册成功后跳回登录页。
        *
-       * 先回登录页面，
-       * 让用户自己使用刚注册的账号登录。
+       * 通过 React Router 的 state
+       * 把刚注册的用户名带过去。
+       *
+       * 不需要放到 localStorage，
+       * 也不会显示在 URL 中。
        */
-      alert("注册成功，请使用新账号登录");
-
       navigate("/login", {
         replace: true,
+
+        state: {
+          registered: true,
+
+          username: username.trim(),
+        },
       });
     } catch (error) {
       console.error("注册失败：", error);
