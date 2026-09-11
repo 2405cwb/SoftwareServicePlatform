@@ -201,6 +201,65 @@ namespace SoftwareServicePlatform.Api.Data
                 .WithMany()
                 .HasForeignKey(x => x.CreatedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+
+            /*
+ * ==========================================
+ * TicketAttachment 工单附件
+ * ==========================================
+ */
+
+
+            /*
+             * 一个 Ticket 可以拥有多个附件。
+             *
+             * Ticket
+             *   1
+             *   ↓
+             *   N
+             * TicketAttachment
+             *
+             * 如果整个 Ticket 被删除，
+             * 它下面的附件数据库记录一起删除。
+             *
+             * 注意：
+             * 后面删除 Ticket 时，
+             * 物理文件还需要代码负责删除。
+             */
+            modelBuilder.Entity<TicketAttachment>()
+                .HasOne(x => x.Ticket)
+                .WithMany()
+                .HasForeignKey(x => x.TicketId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            /*
+ * 一条 TicketRecord 可以拥有多个附件。
+ *
+ * TicketRecordId 可以为空。
+ *
+ * 如果某条 TicketRecord 被删除，
+ * 不直接删除物理附件，
+ * 而是把 TicketRecordId 设置为 null。
+ *
+ * 附件仍然属于 Ticket。
+ */
+            modelBuilder.Entity<TicketAttachment>()
+                .HasOne(x => x.TicketRecord)
+                .WithMany()
+                .HasForeignKey(x => x.TicketRecordId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            /*
+ * 记录是谁上传的附件。
+ *
+ * User 不应该因为存在附件记录
+ * 而被数据库级联删除。
+ */
+            modelBuilder.Entity<TicketAttachment>()
+                .HasOne(x => x.UploadedByUser)
+                .WithMany()
+                .HasForeignKey(x => x.UploadedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
         }
         public DbSet<Models.Customer> Customers { get; set; } = null!;
         public DbSet<Software> Softwares { get; set; }
@@ -223,5 +282,10 @@ namespace SoftwareServicePlatform.Api.Data
         /// 工单处理记录。
         /// </summary>
         public DbSet<TicketRecord> TicketRecords { get; set; }
+
+        /// <summary>
+        /// 工单附件。
+        /// </summary>
+        public DbSet<TicketAttachment> TicketAttachments { get; set; }
     }
 }

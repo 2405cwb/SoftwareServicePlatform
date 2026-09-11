@@ -15,7 +15,7 @@ import VersionPage from "./pages/VersionPage";
 import ForbiddenPage from "./pages/ForbiddenPage";
 import MySoftwarePage from "./pages/MySoftwarePage";
 import UserPage from "./pages/UserPage";
-
+import TicketPage from "./pages/TicketPage";
 function App() {
   return (
     <Routes>
@@ -123,7 +123,25 @@ function App() {
           >
             <Route path="/versions" element={<VersionPage />} />
           </Route>
+          {/* =================================================
+    工单管理
 
+    Admin
+    Support
+    Developer
+    Customer
+
+    Sales 当前暂时没有工单权限。
+    ================================================= */}
+          <Route
+            element={
+              <RequireRole
+                allowedRoles={["Admin", "Support", "Developer", "Customer"]}
+              />
+            }
+          >
+            <Route path="/tickets" element={<TicketPage />} />
+          </Route>
           {/* =================================================
               客户门户 - 我的软件
 

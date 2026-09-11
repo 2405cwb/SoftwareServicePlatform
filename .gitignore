@@ -50,3 +50,13 @@ Thumbs.db
 # Uploaded software packages
 # =========================
 backend/SoftwareServicePlatform.Api/storage/software-packages/
+
+# =========================
+# Frontend build output
+# =========================
+forntend/dist/
+
+# =========================
+# Runtime uploaded files
+# =========================
+backend/SoftwareServicePlatform.Api/Storage/

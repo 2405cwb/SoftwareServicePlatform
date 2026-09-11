@@ -939,7 +939,28 @@ namespace SoftwareServicePlatform.Api.Controllers
                     "请选择工单处理人"
                 );
             }
+            /*
+ * ==========================================
+ * 获取当前执行分配操作的用户ID
+ * ==========================================
+ *
+ * 用于 TicketRecord.CreatedByUserId。
+ */
 
+            var currentUserIdText =
+                User.FindFirstValue(
+                    ClaimTypes.NameIdentifier
+                );
+
+
+            if (!int.TryParse(
+                    currentUserIdText,
+                    out var currentUserId))
+            {
+                return Unauthorized(
+                    "无法获取当前登录用户"
+                );
+            }
 
             /*
              * ==========================================
@@ -1072,40 +1093,143 @@ namespace SoftwareServicePlatform.Api.Controllers
 
 
             /*
-             * ==========================================
-             * 8. 修改工单处理人
-             * ==========================================
-             */
+    * ==========================================
+    * 8. 修改工单处理人
+    * ==========================================
+    */
 
+            var now =
+                DateTime.UtcNow;
+
+
+            /*
+             * 先记住旧处理人。
+             *
+             * 后面如果是“重新分配”，
+             * 时间线可以明确记录：
+             *
+             * 王工 → 李工
+             */
+            var oldAssignedToUserId =
+                ticket.AssignedToUserId;
+
+
+            /*
+             * 设置新的处理人。
+             */
             ticket.AssignedToUserId =
                 assignedUser.Id;
 
 
             /*
-             * 工单只要被正式分配，
-             * 就从：
-             *
-             * Pending
-             *
-             * 进入：
-             *
-             * Processing
+             * 只要工单正式分配给处理人员，
+             * 状态进入 Processing。
              */
             ticket.Status =
                 "Processing";
 
 
-            /*
-             * 更新时间。
-             */
             ticket.UpdatedAt =
-                DateTime.UtcNow;
+                now;
 
 
             /*
              * ==========================================
-             * 9. 保存数据库
+             * 9. 生成分配历史记录
              * ==========================================
+             */
+
+            string assignContent;
+
+
+            /*
+             * 第一次分配：
+             *
+             * AssignedToUserId 原来为空。
+             */
+            if (!oldAssignedToUserId.HasValue)
+            {
+                assignContent =
+                    $"工单已分配给{assignedUser.DisplayName}（{GetTicketRoleName(assignedUser.Role)}）";
+            }
+            else
+            {
+                /*
+                 * 重新分配：
+                 *
+                 * 需要把旧处理人的名字也查出来。
+                 */
+                var oldAssignedUser =
+                    await _dbContext.Users
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(
+                            x =>
+                                x.Id ==
+                                oldAssignedToUserId.Value
+                        );
+
+
+                /*
+                 * 理论上正常业务中旧用户应该存在。
+                 *
+                 * 但为了避免历史数据异常导致接口失败，
+                 * 这里给一个兜底名称。
+                 */
+                var oldAssignedName =
+                    oldAssignedUser?.DisplayName
+                    ?? "原处理人";
+
+
+                assignContent =
+                    $"工单由{oldAssignedName}重新分配给{assignedUser.DisplayName}（{GetTicketRoleName(assignedUser.Role)}）";
+            }
+
+
+            /*
+             * 创建一条 TicketRecord。
+             *
+             * 分配属于系统业务动作，
+             * 客户可以知道当前问题由谁处理，
+             * 所以 IsInternal = false。
+             */
+            var assignRecord =
+                new TicketRecord
+                {
+                    TicketId =
+                        ticket.Id,
+
+                    CreatedByUserId =
+                        currentUserId,
+
+                    RecordType =
+                        "Assign",
+
+                    Content =
+                        assignContent,
+
+                    IsInternal =
+                        false,
+
+                    CreatedAt =
+                        now
+                };
+
+
+            _dbContext.TicketRecords.Add(
+                assignRecord
+            );
+
+
+            /*
+             * ==========================================
+             * 10. 一次保存
+             * ==========================================
+             *
+             * 同时保存：
+             *
+             * Ticket 状态
+             * Ticket 处理人
+             * TicketRecord 分配记录
              */
 
             await _dbContext.SaveChangesAsync();
@@ -1178,9 +1302,1581 @@ namespace SoftwareServicePlatform.Api.Controllers
                     assignedToRole =
                         assignedUser.Role,
 
+                    recordId =
+    assignRecord.Id,
+
                     ticket.UpdatedAt
                 }
             );
+        }/// <summary>
+         /// 给工单增加一条处理记录。
+         ///
+         /// POST /api/tickets/{id}/records
+         /// </summary>
+        [HttpPost("{id}/records")]
+        [Authorize(
+            Roles = "Admin,Support,Developer,Customer"
+        )]
+        public async Task<IActionResult> CreateTicketRecord(
+            int id,
+            CreateTicketRecordRequest request)
+        {
+            /*
+             * ==========================================
+             * 1. 基础参数检查
+             * ==========================================
+             */
+
+            if (id <= 0)
+            {
+                return BadRequest(
+                    "工单ID无效"
+                );
+            }
+
+
+            if (string.IsNullOrWhiteSpace(
+                    request.Content))
+            {
+                return BadRequest(
+                    "处理内容不能为空"
+                );
+            }
+
+
+            /*
+             * 防止单条回复无限长。
+             *
+             * 当前第一版先限制 5000 字符。
+             */
+            if (request.Content.Trim().Length > 5000)
+            {
+                return BadRequest(
+                    "处理内容不能超过5000个字符"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 2. 获取当前登录用户ID
+             * ==========================================
+             */
+
+            var userIdText =
+                User.FindFirstValue(
+                    ClaimTypes.NameIdentifier
+                );
+
+
+            if (!int.TryParse(
+                    userIdText,
+                    out var currentUserId))
+            {
+                return Unauthorized(
+                    "无法获取当前登录用户"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 3. 查询当前用户最新状态
+             * ==========================================
+             */
+
+            var currentUser =
+                await _dbContext.Users
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        x => x.Id == currentUserId
+                    );
+
+
+            if (currentUser == null)
+            {
+                return Unauthorized(
+                    "当前用户不存在"
+                );
+            }
+
+
+            if (!currentUser.IsEnabled)
+            {
+                return Unauthorized(
+                    "当前用户已停用"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 4. 查询工单
+             * ==========================================
+             */
+
+            var ticket =
+                await _dbContext.Tickets
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        x => x.Id == id
+                    );
+
+
+            if (ticket == null)
+            {
+                return NotFound(
+                    "工单不存在"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 5. 根据角色判断是否有权写记录
+             * ==========================================
+             */
+
+            switch (currentUser.Role)
+            {
+                /*
+                 * Admin：
+                 * 可以操作所有工单。
+                 */
+                case "Admin":
+                    break;
+
+
+                /*
+                 * Support：
+                 * 可以操作所有工单。
+                 */
+                case "Support":
+                    break;
+
+
+                /*
+                 * Developer：
+                 * 只能处理分配给自己的工单。
+                 */
+                case "Developer":
+
+                    if (
+                        ticket.AssignedToUserId
+                        !=
+                        currentUser.Id
+                    )
+                    {
+                        return Forbid();
+                    }
+
+                    break;
+
+
+                /*
+                 * Customer：
+                 * 只能操作自己公司的工单。
+                 */
+                case "Customer":
+
+                    if (!currentUser.CustomerId.HasValue)
+                    {
+                        return Unauthorized(
+                            "当前用户未绑定客户"
+                        );
+                    }
+
+
+                    if (
+                        ticket.CustomerId
+                        !=
+                        currentUser.CustomerId.Value
+                    )
+                    {
+                        return Forbid();
+                    }
+
+
+                    /*
+                     * Customer 绝对不能创建内部记录。
+                     */
+                    if (request.IsInternal)
+                    {
+                        return BadRequest(
+                            "客户用户不能创建内部记录"
+                        );
+                    }
+
+                    break;
+
+
+                default:
+
+                    return Forbid();
+            }
+
+
+            /*
+             * ==========================================
+             * 6. 已关闭工单不允许继续回复
+             * ==========================================
+             */
+
+            if (ticket.Status == "Closed")
+            {
+                return BadRequest(
+                    "工单已经关闭，不能继续添加处理记录"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 7. 创建处理记录
+             * ==========================================
+             */
+
+            var record =
+                new TicketRecord
+                {
+                    TicketId =
+                        ticket.Id,
+
+
+                    CreatedByUserId =
+                        currentUser.Id,
+
+
+                    /*
+                     * 当前这个接口表示普通回复。
+                     */
+                    RecordType =
+                        "Comment",
+
+
+                    Content =
+                        request.Content.Trim(),
+
+
+                    IsInternal =
+                        request.IsInternal,
+
+
+                    CreatedAt =
+                        DateTime.UtcNow
+                };
+
+
+            /*
+             * ==========================================
+             * 8. 保存
+             * ==========================================
+             */
+
+            _dbContext.TicketRecords.Add(
+                record
+            );
+
+
+            await _dbContext.SaveChangesAsync();
+
+
+            /*
+             * ==========================================
+             * 9. 返回
+             * ==========================================
+             */
+
+            return StatusCode(
+                StatusCodes.Status201Created,
+                new
+                {
+                    message =
+                        "处理记录添加成功",
+
+                    record.Id,
+
+                    record.TicketId,
+
+                    record.RecordType,
+
+                    record.Content,
+
+                    record.IsInternal,
+
+                    record.CreatedByUserId,
+
+                    createdByName =
+                        currentUser.DisplayName,
+
+                    createdByRole =
+                        currentUser.Role,
+
+                    record.CreatedAt
+                }
+            );
+        }/// <summary>
+         /// 查询一个工单的处理记录。
+         ///
+         /// GET /api/tickets/{id}/records
+         /// </summary>
+        [HttpGet("{id}/records")]
+        [Authorize(
+            Roles = "Admin,Support,Developer,Customer"
+        )]
+        public async Task<IActionResult> GetTicketRecords(
+            int id)
+        {
+            /*
+             * ==========================================
+             * 1. 获取当前登录用户
+             * ==========================================
+             */
+
+            var userIdText =
+                User.FindFirstValue(
+                    ClaimTypes.NameIdentifier
+                );
+
+
+            if (!int.TryParse(
+                    userIdText,
+                    out var currentUserId))
+            {
+                return Unauthorized(
+                    "无法获取当前登录用户"
+                );
+            }
+
+
+            var currentUser =
+                await _dbContext.Users
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        x => x.Id == currentUserId
+                    );
+
+
+            if (currentUser == null)
+            {
+                return Unauthorized(
+                    "当前用户不存在"
+                );
+            }
+
+
+            if (!currentUser.IsEnabled)
+            {
+                return Unauthorized(
+                    "当前用户已停用"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 2. 查询工单
+             * ==========================================
+             */
+
+            var ticket =
+                await _dbContext.Tickets
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        x => x.Id == id
+                    );
+
+
+            if (ticket == null)
+            {
+                return NotFound(
+                    "工单不存在"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 3. 权限检查
+             * ==========================================
+             */
+
+            switch (currentUser.Role)
+            {
+                case "Admin":
+
+                case "Support":
+                    /*
+                     * Admin / Support：
+                     * 可以看全部。
+                     */
+                    break;
+
+
+                case "Developer":
+
+                    /*
+                     * Developer：
+                     * 只能看分配给自己的工单。
+                     */
+                    if (
+                        ticket.AssignedToUserId
+                        !=
+                        currentUser.Id
+                    )
+                    {
+                        return Forbid();
+                    }
+
+                    break;
+
+
+                case "Customer":
+
+                    /*
+                     * Customer：
+                     * 只能看自己公司的工单。
+                     */
+                    if (!currentUser.CustomerId.HasValue)
+                    {
+                        return Unauthorized(
+                            "当前用户未绑定客户"
+                        );
+                    }
+
+
+                    if (
+                        ticket.CustomerId
+                        !=
+                        currentUser.CustomerId.Value
+                    )
+                    {
+                        return Forbid();
+                    }
+
+                    break;
+
+
+                default:
+
+                    return Forbid();
+            }
+
+
+            /*
+             * ==========================================
+             * 4. 构造处理记录查询
+             * ==========================================
+             */
+
+            IQueryable<TicketRecord> query =
+                _dbContext.TicketRecords
+                    .AsNoTracking()
+                    .Where(
+                        x => x.TicketId == id
+                    );
+
+
+            /*
+             * ==========================================
+             * 5. Customer 看不到内部记录
+             * ==========================================
+             */
+
+            if (currentUser.Role == "Customer")
+            {
+                query =
+                    query.Where(
+                        x => !x.IsInternal
+                    );
+            }
+
+
+            /*
+             * ==========================================
+             * 6. 查询时间线
+             * ==========================================
+             */
+
+            var records =
+                await query
+                    /*
+                     * 时间线按照最早 → 最新排列。
+                     */
+                    .OrderBy(
+                        x => x.CreatedAt
+                    )
+
+                    .Select(
+                        x => new
+                        {
+                            x.Id,
+
+                            x.TicketId,
+
+                            x.RecordType,
+
+                            x.Content,
+
+                            x.IsInternal,
+
+                            x.CreatedByUserId,
+
+                            CreatedByName =
+                                x.CreatedByUser.DisplayName,
+
+                            CreatedByRole =
+                                x.CreatedByUser.Role,
+
+                            x.CreatedAt
+                        }
+                    )
+
+                    .ToListAsync();
+
+
+            /*
+             * ==========================================
+             * 7. 返回
+             * ==========================================
+             */
+
+            return Ok(
+                records
+            );
+        }/// <summary>
+         /// 将工单标记为已解决。
+         ///
+         /// PUT /api/tickets/{id}/resolve
+         ///
+         /// 可以执行：
+         /// Admin
+         /// Support
+         /// Developer
+         ///
+         /// Customer 不能自己把工单标记为已解决。
+         /// </summary>
+        [HttpPut("{id}/resolve")]
+        [Authorize(
+            Roles = "Admin,Support,Developer"
+        )]
+        public async Task<IActionResult> ResolveTicket(
+            int id,
+            ResolveTicketRequest request)
+        {
+            /*
+             * ==========================================
+             * 1. 参数检查
+             * ==========================================
+             */
+
+            if (id <= 0)
+            {
+                return BadRequest(
+                    "工单ID无效"
+                );
+            }
+
+
+            if (string.IsNullOrWhiteSpace(
+                    request.Content))
+            {
+                return BadRequest(
+                    "请输入问题解决说明"
+                );
+            }
+
+
+            if (request.Content.Trim().Length > 5000)
+            {
+                return BadRequest(
+                    "解决说明不能超过5000个字符"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 2. 获取当前登录用户ID
+             * ==========================================
+             */
+
+            var userIdText =
+                User.FindFirstValue(
+                    ClaimTypes.NameIdentifier
+                );
+
+
+            if (!int.TryParse(
+                    userIdText,
+                    out var currentUserId))
+            {
+                return Unauthorized(
+                    "无法获取当前登录用户"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 3. 查询当前用户最新状态
+             * ==========================================
+             */
+
+            var currentUser =
+                await _dbContext.Users
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        x => x.Id == currentUserId
+                    );
+
+
+            if (currentUser == null)
+            {
+                return Unauthorized(
+                    "当前用户不存在"
+                );
+            }
+
+
+            if (!currentUser.IsEnabled)
+            {
+                return Unauthorized(
+                    "当前用户已停用"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 4. 查询工单
+             * ==========================================
+             *
+             * 这里不能 AsNoTracking。
+             *
+             * 因为马上要修改 Ticket：
+             *
+             * Status
+             * ResolvedAt
+             * UpdatedAt
+             */
+
+            var ticket =
+                await _dbContext.Tickets
+                    .FirstOrDefaultAsync(
+                        x => x.Id == id
+                    );
+
+
+            if (ticket == null)
+            {
+                return NotFound(
+                    "工单不存在"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 5. 检查工单当前状态
+             * ==========================================
+             */
+
+            if (ticket.Status == "Closed")
+            {
+                return BadRequest(
+                    "已关闭的工单不能标记为已解决"
+                );
+            }
+
+
+            if (ticket.Status == "Resolved")
+            {
+                return BadRequest(
+                    "当前工单已经是已解决状态"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 6. 根据角色检查处理权限
+             * ==========================================
+             */
+
+            switch (currentUser.Role)
+            {
+                /*
+                 * Admin：
+                 * 可以处理任意工单。
+                 */
+                case "Admin":
+                    break;
+
+
+                /*
+                 * Support：
+                 * 当前第一版可以处理任意客户工单。
+                 */
+                case "Support":
+                    break;
+
+
+                /*
+                 * Developer：
+                 * 只能解决分配给自己的工单。
+                 */
+                case "Developer":
+
+                    if (
+                        ticket.AssignedToUserId
+                        !=
+                        currentUser.Id
+                    )
+                    {
+                        return Forbid();
+                    }
+
+                    break;
+
+
+                default:
+
+                    return Forbid();
+            }
+
+
+            /*
+             * ==========================================
+             * 7. 修改工单状态
+             * ==========================================
+             */
+
+            var now =
+                DateTime.UtcNow;
+
+
+            ticket.Status =
+                "Resolved";
+
+
+            ticket.ResolvedAt =
+                now;
+
+
+            ticket.UpdatedAt =
+                now;
+
+
+            /*
+             * ==========================================
+             * 8. 自动创建一条 Resolve 历史记录
+             * ==========================================
+             *
+             * 这一步非常重要。
+             *
+             * 如果我们只修改：
+             *
+             * Status = Resolved
+             *
+             * 那么以后只能知道：
+             *
+             * “这个工单解决过”
+             *
+             * 却不知道：
+             *
+             * 谁解决的？
+             * 什么时间？
+             * 怎么解决的？
+             *
+             * 所以所有关键业务动作，
+             * 最好留下历史流水。
+             */
+
+            var record =
+                new TicketRecord
+                {
+                    TicketId =
+                        ticket.Id,
+
+
+                    CreatedByUserId =
+                        currentUser.Id,
+
+
+                    RecordType =
+                        "Resolve",
+
+
+                    Content =
+                        request.Content.Trim(),
+
+
+                    /*
+                     * Resolve 属于正式解决说明，
+                     * 客户可以看到。
+                     */
+                    IsInternal =
+                        false,
+
+
+                    CreatedAt =
+                        now
+                };
+
+
+            _dbContext.TicketRecords.Add(
+                record
+            );
+
+
+            /*
+             * ==========================================
+             * 9. 一次 SaveChanges
+             * ==========================================
+             *
+             * 同时保存：
+             *
+             * Ticket 状态变化
+             *
+             * +
+             *
+             * TicketRecord 解决记录
+             */
+
+            await _dbContext.SaveChangesAsync();
+
+
+            /*
+             * ==========================================
+             * 10. 返回结果
+             * ==========================================
+             */
+
+            return Ok(
+                new
+                {
+                    message =
+                        "工单已标记为解决",
+
+                    ticket.Id,
+
+                    ticket.TicketNo,
+
+                    ticket.Title,
+
+                    ticket.Status,
+
+                    ticket.AssignedToUserId,
+
+                    ticket.ResolvedAt,
+
+                    ticket.UpdatedAt,
+
+                    resolution =
+                        new
+                        {
+                            record.Id,
+
+                            record.RecordType,
+
+                            record.Content,
+
+                            record.CreatedByUserId,
+
+                            createdByName =
+                                currentUser.DisplayName,
+
+                            createdByRole =
+                                currentUser.Role,
+
+                            record.CreatedAt
+                        }
+                }
+            );
+        }/// <summary>
+         /// 关闭工单。
+         ///
+         /// PUT /api/tickets/{id}/close
+         ///
+         /// 当前允许：
+         /// Customer
+         /// Admin
+         /// Support
+         ///
+         /// Customer 只能关闭自己公司的工单。
+         /// </summary>
+        [HttpPut("{id}/close")]
+        [Authorize(
+            Roles = "Admin,Support,Customer"
+        )]
+        public async Task<IActionResult> CloseTicket(
+            int id,
+            CloseTicketRequest request)
+        {
+            /*
+             * ==========================================
+             * 1. 参数检查
+             * ==========================================
+             */
+
+            if (id <= 0)
+            {
+                return BadRequest(
+                    "工单ID无效"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 2. 获取当前登录用户ID
+             * ==========================================
+             */
+
+            var userIdText =
+                User.FindFirstValue(
+                    ClaimTypes.NameIdentifier
+                );
+
+
+            if (!int.TryParse(
+                    userIdText,
+                    out var currentUserId))
+            {
+                return Unauthorized(
+                    "无法获取当前登录用户"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 3. 查询当前用户
+             * ==========================================
+             */
+
+            var currentUser =
+                await _dbContext.Users
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        x => x.Id == currentUserId
+                    );
+
+
+            if (currentUser == null)
+            {
+                return Unauthorized(
+                    "当前用户不存在"
+                );
+            }
+
+
+            if (!currentUser.IsEnabled)
+            {
+                return Unauthorized(
+                    "当前用户已停用"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 4. 查询工单
+             * ==========================================
+             *
+             * 这里要修改 Ticket，
+             * 所以不要使用 AsNoTracking。
+             */
+
+            var ticket =
+                await _dbContext.Tickets
+                    .FirstOrDefaultAsync(
+                        x => x.Id == id
+                    );
+
+
+            if (ticket == null)
+            {
+                return NotFound(
+                    "工单不存在"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 5. 状态检查
+             * ==========================================
+             */
+
+            if (ticket.Status == "Closed")
+            {
+                return BadRequest(
+                    "当前工单已经关闭"
+                );
+            }
+
+
+            /*
+             * 当前设计：
+             *
+             * 工单必须先 Resolved，
+             * 才允许正式 Close。
+             *
+             * 防止：
+             *
+             * Pending
+             * ↓
+             * 直接 Closed
+             */
+            if (ticket.Status != "Resolved")
+            {
+                return BadRequest(
+                    "只有已解决的工单才能关闭"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 6. 数据权限检查
+             * ==========================================
+             */
+
+            switch (currentUser.Role)
+            {
+                case "Admin":
+
+                case "Support":
+                    /*
+                     * 内部管理员和售后
+                     * 可以关闭任意已解决工单。
+                     */
+                    break;
+
+
+                case "Customer":
+
+                    /*
+                     * Customer 必须绑定客户。
+                     */
+                    if (!currentUser.CustomerId.HasValue)
+                    {
+                        return Unauthorized(
+                            "当前用户未绑定客户"
+                        );
+                    }
+
+
+                    /*
+                     * 只能关闭自己公司的工单。
+                     */
+                    if (
+                        ticket.CustomerId
+                        !=
+                        currentUser.CustomerId.Value
+                    )
+                    {
+                        return Forbid();
+                    }
+
+                    break;
+
+
+                default:
+
+                    return Forbid();
+            }
+
+
+            /*
+             * ==========================================
+             * 7. 修改 Ticket 状态
+             * ==========================================
+             */
+
+            var now =
+                DateTime.UtcNow;
+
+
+            ticket.Status =
+                "Closed";
+
+
+            ticket.UpdatedAt =
+                now;
+
+
+            /*
+             * ResolvedAt 不清空。
+             *
+             * 因为它表示：
+             *
+             * “什么时候解决的”
+             *
+             * Close 只是正式结束工单。
+             */
+
+
+            /*
+             * ==========================================
+             * 8. 创建 Close 历史记录
+             * ==========================================
+             */
+
+            var content =
+                string.IsNullOrWhiteSpace(
+                    request.Content
+                )
+                    ? "工单已关闭"
+                    : request.Content.Trim();
+
+
+            var record =
+                new TicketRecord
+                {
+                    TicketId =
+                        ticket.Id,
+
+                    CreatedByUserId =
+                        currentUser.Id,
+
+                    RecordType =
+                        "Close",
+
+                    Content =
+                        content,
+
+                    IsInternal =
+                        false,
+
+                    CreatedAt =
+                        now
+                };
+
+
+            _dbContext.TicketRecords.Add(
+                record
+            );
+
+
+            /*
+             * ==========================================
+             * 9. 一次保存
+             * ==========================================
+             */
+
+            await _dbContext.SaveChangesAsync();
+
+
+            /*
+             * ==========================================
+             * 10. 返回结果
+             * ==========================================
+             */
+
+            return Ok(
+                new
+                {
+                    message =
+                        "工单已关闭",
+
+                    ticket.Id,
+
+                    ticket.TicketNo,
+
+                    ticket.Status,
+
+                    ticket.ResolvedAt,
+
+                    ticket.UpdatedAt,
+
+                    closedByUserId =
+                        currentUser.Id,
+
+                    closedByName =
+                        currentUser.DisplayName,
+
+                    recordId =
+                        record.Id
+                }
+            );
+        }/// <summary>
+         /// 重新打开工单。
+         ///
+         /// PUT /api/tickets/{id}/reopen
+         ///
+         /// 用于：
+         ///
+         /// 已经 Resolved 或 Closed 的工单
+         /// 实际问题仍然存在时重新进入处理流程。
+         /// </summary>
+        [HttpPut("{id}/reopen")]
+        [Authorize(
+            Roles = "Admin,Support,Customer"
+        )]
+        public async Task<IActionResult> ReopenTicket(
+            int id,
+            ReopenTicketRequest request)
+        {
+            /*
+             * ==========================================
+             * 1. 参数检查
+             * ==========================================
+             */
+
+            if (id <= 0)
+            {
+                return BadRequest(
+                    "工单ID无效"
+                );
+            }
+
+
+            if (string.IsNullOrWhiteSpace(
+                    request.Content))
+            {
+                return BadRequest(
+                    "请输入重新打开工单的原因"
+                );
+            }
+
+
+            if (request.Content.Trim().Length > 5000)
+            {
+                return BadRequest(
+                    "重新打开原因不能超过5000个字符"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 2. 获取当前用户ID
+             * ==========================================
+             */
+
+            var userIdText =
+                User.FindFirstValue(
+                    ClaimTypes.NameIdentifier
+                );
+
+
+            if (!int.TryParse(
+                    userIdText,
+                    out var currentUserId))
+            {
+                return Unauthorized(
+                    "无法获取当前登录用户"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 3. 查询当前用户
+             * ==========================================
+             */
+
+            var currentUser =
+                await _dbContext.Users
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        x => x.Id == currentUserId
+                    );
+
+
+            if (currentUser == null)
+            {
+                return Unauthorized(
+                    "当前用户不存在"
+                );
+            }
+
+
+            if (!currentUser.IsEnabled)
+            {
+                return Unauthorized(
+                    "当前用户已停用"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 4. 查询工单
+             * ==========================================
+             */
+
+            var ticket =
+                await _dbContext.Tickets
+                    .FirstOrDefaultAsync(
+                        x => x.Id == id
+                    );
+
+
+            if (ticket == null)
+            {
+                return NotFound(
+                    "工单不存在"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 5. 当前状态必须允许 Reopen
+             * ==========================================
+             *
+             * 当前只允许：
+             *
+             * Resolved
+             * Closed
+             */
+
+            if (
+                ticket.Status != "Resolved"
+                &&
+                ticket.Status != "Closed"
+            )
+            {
+                return BadRequest(
+                    "当前工单状态不允许重新打开"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 6. 权限检查
+             * ==========================================
+             */
+
+            switch (currentUser.Role)
+            {
+                case "Admin":
+
+                case "Support":
+                    break;
+
+
+                case "Customer":
+
+                    if (!currentUser.CustomerId.HasValue)
+                    {
+                        return Unauthorized(
+                            "当前用户未绑定客户"
+                        );
+                    }
+
+
+                    if (
+                        ticket.CustomerId
+                        !=
+                        currentUser.CustomerId.Value
+                    )
+                    {
+                        return Forbid();
+                    }
+
+                    break;
+
+
+                default:
+
+                    return Forbid();
+            }
+
+
+            /*
+             * ==========================================
+             * 7. 修改工单状态
+             * ==========================================
+             */
+
+            var now =
+                DateTime.UtcNow;
+
+
+            /*
+             * 为什么重新打开以后直接 Processing？
+             *
+             * 因为这个工单之前已经有处理人，
+             * 不属于一个完全新的 Pending 工单。
+             *
+             * 当前第一版继续由原处理人负责。
+             */
+
+            ticket.Status =
+                "Processing";
+
+
+            /*
+             * 工单重新进入处理，
+             * 原来的 ResolvedAt 已经不再代表
+             * 当前最终解决时间。
+             *
+             * 所以清空。
+             */
+            ticket.ResolvedAt =
+                null;
+
+
+            ticket.UpdatedAt =
+                now;
+
+
+            /*
+             * ==========================================
+             * 8. 创建 Reopen 历史记录
+             * ==========================================
+             */
+
+            var record =
+                new TicketRecord
+                {
+                    TicketId =
+                        ticket.Id,
+
+                    CreatedByUserId =
+                        currentUser.Id,
+
+                    RecordType =
+                        "Reopen",
+
+                    Content =
+                        request.Content.Trim(),
+
+                    IsInternal =
+                        false,
+
+                    CreatedAt =
+                        now
+                };
+
+
+            _dbContext.TicketRecords.Add(
+                record
+            );
+
+
+            /*
+             * ==========================================
+             * 9. 保存
+             * ==========================================
+             */
+
+            await _dbContext.SaveChangesAsync();
+
+
+            /*
+             * ==========================================
+             * 10. 返回
+             * ==========================================
+             */
+
+            return Ok(
+                new
+                {
+                    message =
+                        "工单已重新打开",
+
+                    ticket.Id,
+
+                    ticket.TicketNo,
+
+                    ticket.Status,
+
+                    ticket.AssignedToUserId,
+
+                    ticket.ResolvedAt,
+
+                    ticket.UpdatedAt,
+
+                    reopenedByUserId =
+                        currentUser.Id,
+
+                    reopenedByName =
+                        currentUser.DisplayName,
+
+                    recordId =
+                        record.Id
+                }
+            );
+        }/// <summary>
+         /// 获取可以作为工单处理人的用户。
+         ///
+         /// GET /api/tickets/assignable-users
+         ///
+         /// 只有 Admin / Support 可以调用。
+         ///
+         /// 当前允许作为处理人的角色：
+         /// Support
+         /// Developer
+         /// </summary>
+        [HttpGet("assignable-users")]
+        [Authorize(Roles = "Admin,Support")]
+        public async Task<IActionResult> GetAssignableUsers()
+        {
+            var users =
+                await _dbContext.Users
+                    .AsNoTracking()
+                    .Where(
+                        x =>
+                            x.IsEnabled
+                            &&
+                            (
+                                x.Role == "Support"
+                                ||
+                                x.Role == "Developer"
+                            )
+                    )
+                    .OrderBy(x => x.Role)
+                    .ThenBy(x => x.DisplayName)
+                    .Select(
+                        x => new
+                        {
+                            x.Id,
+
+                            x.Username,
+
+                            x.DisplayName,
+
+                            x.Role
+                        }
+                    )
+                    .ToListAsync();
+
+            return Ok(users);
+        }
+
+        /// <summary>
+        /// 工单模块中使用的角色中文名称。
+        /// </summary>
+        private static string GetTicketRoleName(
+            string role)
+        {
+            return role switch
+            {
+                "Admin" =>
+                    "管理员",
+
+                "Support" =>
+                    "售后",
+
+                "Developer" =>
+                    "开发",
+
+                "Customer" =>
+                    "客户",
+
+                "Sales" =>
+                    "销售",
+
+                _ =>
+                    role
+            };
         }
     }
 }
