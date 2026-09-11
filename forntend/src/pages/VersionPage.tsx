@@ -74,7 +74,35 @@ interface SoftwareVersion {
   // 安装包上传时间
   packageUploadedAt: string | null;
 }
+/**
+ * 软件版本附加资料。
+ *
+ * 与后端 SoftwareVersionAttachment
+ * 查询接口返回的数据对应。
+ */
+interface VersionAttachment {
+  id: number;
 
+  softwareVersionId: number;
+
+  fileName: string;
+
+  fileSize: number;
+
+  contentType: string;
+
+  attachmentType: string;
+
+  isCustomerVisible: boolean;
+
+  remark: string;
+
+  uploadedByUserId: number;
+
+  uploadedByName: string;
+
+  createdAt: string;
+}
 function VersionPage() {
   /**
    * 软件列表。
@@ -206,7 +234,56 @@ function VersionPage() {
   const [uploadingVersionId, setUploadingVersionId] = useState<number | null>(
     null,
   );
+  /**
+   * 当前正在管理资料的软件版本。
+   *
+   * null：
+   * 资料窗口关闭。
+   */
+  const [selectedAttachmentVersion, setSelectedAttachmentVersion] =
+    useState<SoftwareVersion | null>(null);
 
+  /**
+   * 当前版本已有附件。
+   */
+  const [versionAttachments, setVersionAttachments] = useState<
+    VersionAttachment[]
+  >([]);
+
+  /**
+   * 准备上传的附件文件。
+   */
+  const [selectedAttachmentFile, setSelectedAttachmentFile] =
+    useState<File | null>(null);
+
+  /**
+   * 附件类型。
+   */
+  const [attachmentType, setAttachmentType] = useState("Manual");
+
+  /**
+   * 客户是否可以看到。
+   */
+  const [attachmentCustomerVisible, setAttachmentCustomerVisible] =
+    useState(true);
+
+  /**
+   * 附件备注。
+   */
+  const [attachmentRemark, setAttachmentRemark] = useState("");
+
+  /**
+   * 是否正在上传版本附件。
+   */
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+
+  /**
+   * 用于重新生成 file input。
+   *
+   * 上传成功以后递增，
+   * 可以把浏览器中的已选文件真正清空。
+   */
+  const [attachmentFileInputKey, setAttachmentFileInputKey] = useState(0);
   /**
    * 从后端加载软件列表
    */
@@ -540,6 +617,268 @@ function VersionPage() {
     // 每次重新打开时，
     // 清空之前选择过的文件
     setSelectedPackage(null);
+  }
+
+  /**
+   * 打开某个版本的“资料管理”窗口。
+   */
+  async function openVersionAttachments(softwareVersion: SoftwareVersion) {
+    /*
+     * 记录当前正在管理哪个版本。
+     */
+    setSelectedAttachmentVersion(softwareVersion);
+
+    /*
+     * 每次打开都清空上一次输入。
+     */
+    setSelectedAttachmentFile(null);
+
+    setAttachmentType("Manual");
+
+    setAttachmentCustomerVisible(true);
+
+    setAttachmentRemark("");
+
+    setAttachmentFileInputKey((value) => value + 1);
+
+    /*
+     * 加载这个版本已有的资料。
+     */
+    await loadVersionAttachments(softwareVersion.id);
+  } /**
+   * 查询某个版本已有的附加资料。
+   */
+  async function loadVersionAttachments(softwareVersionId: number) {
+    try {
+      const response = await apiFetch(
+        `/api/software-versions/${softwareVersionId}/attachments`,
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+
+        throw new Error(errorText || `加载版本资料失败：${response.status}`);
+      }
+
+      const data = (await response.json()) as VersionAttachment[];
+
+      setVersionAttachments(data);
+    } catch (error) {
+      console.error("加载版本资料失败：", error);
+
+      alert("加载版本资料失败：" + String(error));
+    }
+  } /**
+   * 上传版本附加资料。
+   */
+  async function uploadVersionAttachment() {
+    /*
+     * 必须先选择版本。
+     */
+    if (selectedAttachmentVersion === null) {
+      return;
+    }
+
+    /*
+     * 必须选择文件。
+     */
+    if (selectedAttachmentFile === null) {
+      alert("请选择需要上传的资料");
+
+      return;
+    }
+
+    /*
+     * 前端也先检查100MB。
+     *
+     * 后端仍然会再次检查，
+     * 所以前端检查只是改善用户体验。
+     */
+    const maxFileSize = 100 * 1024 * 1024;
+
+    if (selectedAttachmentFile.size > maxFileSize) {
+      alert("单个附件不能超过100MB");
+
+      return;
+    }
+
+    try {
+      setIsUploadingAttachment(true);
+
+      const formData = new FormData();
+
+      formData.append("file", selectedAttachmentFile);
+
+      formData.append("attachmentType", attachmentType);
+
+      /*
+       * 问题日志永远不能给客户看。
+       *
+       * 前端这样控制只是方便用户，
+       * 后端同样已经强制控制。
+       */
+      formData.append(
+        "isCustomerVisible",
+        attachmentType === "Log" ? "false" : String(attachmentCustomerVisible),
+      );
+
+      formData.append("remark", attachmentRemark.trim());
+
+      const response = await apiFetch(
+        `/api/software-versions/${selectedAttachmentVersion.id}/attachments`,
+        {
+          method: "POST",
+
+          /*
+           * FormData 不要自己设置
+           * Content-Type。
+           *
+           * 浏览器会自动生成 boundary。
+           */
+          body: formData,
+        },
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+
+        throw new Error(errorText || `资料上传失败：${response.status}`);
+      }
+
+      /*
+       * 上传成功以后清空表单。
+       */
+      setSelectedAttachmentFile(null);
+
+      setAttachmentRemark("");
+
+      setAttachmentFileInputKey((value) => value + 1);
+
+      /*
+       * 重新加载附件列表。
+       */
+      await loadVersionAttachments(selectedAttachmentVersion.id);
+    } catch (error) {
+      console.error("上传版本资料失败：", error);
+
+      alert("上传版本资料失败：" + String(error));
+    } finally {
+      setIsUploadingAttachment(false);
+    }
+  } /**
+   * 下载版本附加资料。
+   *
+   * 不能直接用普通 <a href>，
+   * 因为接口需要 JWT。
+   *
+   * 所以：
+   *
+   * apiFetch
+   * → Blob
+   * → 临时URL
+   * → 浏览器下载
+   */
+  async function downloadVersionAttachment(attachment: VersionAttachment) {
+    try {
+      const response = await apiFetch(
+        `/api/software-versions/attachments/${attachment.id}/download`,
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+
+        throw new Error(errorText || `下载失败：${response.status}`);
+      }
+
+      const blob = await response.blob();
+
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+
+      link.href = url;
+
+      link.download = attachment.fileName;
+
+      document.body.appendChild(link);
+
+      link.click();
+
+      link.remove();
+
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("下载版本资料失败：", error);
+
+      alert("下载版本资料失败：" + String(error));
+    }
+  } /**
+   * 删除版本附加资料。
+   */
+  async function deleteVersionAttachment(attachment: VersionAttachment) {
+    /*
+     * 附件删除这里暂时直接使用 confirm。
+     *
+     * 后面也可以再改成
+     * ConfirmDeleteButton。
+     */
+    const confirmed = window.confirm(
+      `确定要删除资料“${attachment.fileName}”吗？`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const response = await apiFetch(
+        `/api/software-versions/attachments/${attachment.id}`,
+        {
+          method: "DELETE",
+        },
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+
+        throw new Error(errorText || `删除失败：${response.status}`);
+      }
+
+      /*
+       * 删除成功以后重新读取。
+       */
+      if (selectedAttachmentVersion) {
+        await loadVersionAttachments(selectedAttachmentVersion.id);
+      }
+    } catch (error) {
+      console.error("删除版本资料失败：", error);
+
+      alert("删除版本资料失败：" + String(error));
+    }
+  } /**
+   * 把后端保存的英文类型
+   * 转换成界面上的中文。
+   */
+  function getAttachmentTypeName(type: string) {
+    switch (type) {
+      case "Manual":
+        return "用户手册";
+
+      case "ReleaseDocument":
+        return "版本说明";
+
+      case "Troubleshooting":
+        return "常见问题";
+
+      case "Log":
+        return "问题日志";
+
+      case "Config":
+        return "配置文件";
+
+      default:
+        return "其他资料";
+    }
   }
   /**
    * 删除软件版本
@@ -981,8 +1320,17 @@ function VersionPage() {
                 "未上传"
               )}
             </div>
+            {/* 版本附加资料 */}
+
             <div className="table-actions">
               {/* 编辑版本 */}
+
+              <button
+                className="normal-button"
+                onClick={() => openVersionAttachments(version)}
+              >
+                资料
+              </button>
               <button
                 className="edit-button"
                 onClick={() => editVersion(version)}
@@ -1022,6 +1370,203 @@ function VersionPage() {
       {/* 没有数据 */}
       {filteredVersions.length === 0 && (
         <div className="empty">暂无版本数据</div>
+      )}
+
+      {selectedAttachmentVersion && (
+        <div className="version-attachment-mask">
+          <div className="version-attachment-dialog">
+            {/* ================= 标题 ================= */}
+            <div className="version-attachment-header">
+              <div>
+                <h3>版本资料管理</h3>
+
+                <p>
+                  {getSoftwareName(selectedAttachmentVersion.softwareId)}
+
+                  {" · "}
+
+                  {selectedAttachmentVersion.version}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="normal-button"
+                onClick={() => setSelectedAttachmentVersion(null)}
+              >
+                关闭
+              </button>
+            </div>
+
+            {/* ================= 上传区域 ================= */}
+            <div className="version-attachment-upload">
+              <h4>上传资料</h4>
+
+              <div className="version-attachment-form">
+                {/* 文件 */}
+                <div className="form-item">
+                  <label>文件</label>
+
+                  <input
+                    key={attachmentFileInputKey}
+                    type="file"
+                    onChange={(e) =>
+                      setSelectedAttachmentFile(e.target.files?.[0] ?? null)
+                    }
+                  />
+                </div>
+
+                {/* 类型 */}
+                <div className="form-item">
+                  <label>类型</label>
+
+                  <select
+                    value={attachmentType}
+                    onChange={(e) => {
+                      const value = e.target.value;
+
+                      setAttachmentType(value);
+
+                      /*
+                       * 选择“问题日志”以后，
+                       * 自动切换为客户不可见。
+                       */
+                      if (value === "Log") {
+                        setAttachmentCustomerVisible(false);
+                      }
+                    }}
+                  >
+                    <option value="Manual">用户手册</option>
+
+                    <option value="ReleaseDocument">版本说明</option>
+
+                    <option value="Troubleshooting">常见问题</option>
+
+                    <option value="Log">问题日志</option>
+
+                    <option value="Config">配置文件</option>
+
+                    <option value="Other">其他资料</option>
+                  </select>
+                </div>
+
+                {/* 客户可见 */}
+                <div className="form-item">
+                  <label>客户可见</label>
+
+                  <input
+                    type="checkbox"
+                    checked={attachmentCustomerVisible}
+                    disabled={attachmentType === "Log"}
+                    onChange={(e) =>
+                      setAttachmentCustomerVisible(e.target.checked)
+                    }
+                  />
+                </div>
+
+                {/* 备注 */}
+                <div className="form-item">
+                  <label>备注</label>
+
+                  <input
+                    type="text"
+                    value={attachmentRemark}
+                    placeholder="选填"
+                    onChange={(e) => setAttachmentRemark(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {attachmentType === "Log" && (
+                <div className="version-attachment-tip">
+                  问题日志属于内部资料， 客户不可见。
+                </div>
+              )}
+
+              <button
+                type="button"
+                className="primary-button"
+                disabled={isUploadingAttachment}
+                onClick={uploadVersionAttachment}
+              >
+                {isUploadingAttachment ? "正在上传..." : "上传资料"}
+              </button>
+            </div>
+
+            {/* ================= 已有资料 ================= */}
+            <div className="version-attachment-list">
+              <h4>已有资料</h4>
+
+              {versionAttachments.length === 0 ? (
+                <div className="empty-text">暂无附加资料</div>
+              ) : (
+                <table>
+                  <thead>
+                    <tr>
+                      <th>文件</th>
+
+                      <th>类型</th>
+
+                      <th>大小</th>
+
+                      <th>客户可见</th>
+
+                      <th>备注</th>
+
+                      <th>上传人</th>
+
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {versionAttachments.map((attachment) => (
+                      <tr key={attachment.id}>
+                        <td>{attachment.fileName}</td>
+
+                        <td>
+                          {getAttachmentTypeName(attachment.attachmentType)}
+                        </td>
+
+                        <td>{formatFileSize(attachment.fileSize)}</td>
+
+                        <td>{attachment.isCustomerVisible ? "是" : "否"}</td>
+
+                        <td>{attachment.remark || "-"}</td>
+
+                        <td>{attachment.uploadedByName || "-"}</td>
+
+                        <td>
+                          <div className="table-actions">
+                            <button
+                              type="button"
+                              className="normal-button"
+                              onClick={() =>
+                                downloadVersionAttachment(attachment)
+                              }
+                            >
+                              下载
+                            </button>
+
+                            <button
+                              type="button"
+                              className="delete-button"
+                              onClick={() =>
+                                deleteVersionAttachment(attachment)
+                              }
+                            >
+                              删除
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -260,6 +260,64 @@ namespace SoftwareServicePlatform.Api.Data
                 .WithMany()
                 .HasForeignKey(x => x.UploadedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            /*
+ * ==========================================
+ * SoftwareVersionAttachment
+ * 软件版本附件
+ * ==========================================
+ */
+
+
+            /*
+             * SoftwareVersion
+             *
+             *      1
+             *      ↓
+             *      N
+             *
+             * SoftwareVersionAttachment
+             *
+             * 一个软件版本可以拥有多个附加资料。
+             *
+             * 例如：
+             *
+             * V1.2.0
+             * ├─ 用户手册.pdf
+             * ├─ 常见问题.pdf
+             * └─ 问题日志.zip
+             *
+             * 如果整个 SoftwareVersion 被删除，
+             * 它下面对应的附件数据库记录也一起删除。
+             *
+             * 注意：
+             * 这里只会删除数据库记录。
+             * 真正保存在硬盘上的文件，
+             * 后面仍然需要我们自己写代码删除。
+             */
+            modelBuilder.Entity<SoftwareVersionAttachment>()
+                .HasOne(x => x.SoftwareVersion)
+                .WithMany()
+                .HasForeignKey(x => x.SoftwareVersionId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+
+            /*
+             * SoftwareVersionAttachment
+             *          ↓
+             *       UploadedByUser
+             *
+             * 每个附件都记录是谁上传的。
+             *
+             * 不允许因为某个用户存在上传历史，
+             * 就把这个用户级联删除。
+             */
+            modelBuilder.Entity<SoftwareVersionAttachment>()
+                .HasOne(x => x.UploadedByUser)
+                .WithMany()
+                .HasForeignKey(x => x.UploadedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
         }
         public DbSet<Models.Customer> Customers { get; set; } = null!;
         public DbSet<Software> Softwares { get; set; }
@@ -287,5 +345,13 @@ namespace SoftwareServicePlatform.Api.Data
         /// 工单附件。
         /// </summary>
         public DbSet<TicketAttachment> TicketAttachments { get; set; }
+
+
+        /// <summary>
+        /// 软件版本附加资料。
+        /// </summary>
+        public DbSet<SoftwareVersionAttachment>
+            SoftwareVersionAttachments
+        { get; set; }
     }
 }
