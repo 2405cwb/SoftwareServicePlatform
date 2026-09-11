@@ -3353,4 +3353,55 @@ button {
   color: var(--text-muted);
 
   font-size: 12px;
+}/* ============================================================
+   注册页面
+   ============================================================ */
+
+.register-form-wrapper {
+  width: 100%;
+  max-width: 560px;
+}
+
+
+.register-form-grid {
+  display: grid;
+
+  grid-template-columns:
+    repeat(2, minmax(0, 1fr));
+
+  gap: 0 16px;
+}
+
+
+.register-login-link {
+  margin-top: 18px;
+
+  color: var(--text-muted);
+
+  font-size: 13px;
+
+  text-align: center;
+}
+
+
+.register-login-link a {
+  margin-left: 6px;
+
+  color: var(--primary);
+
+  font-weight: 500;
+
+  text-decoration: none;
+}
+
+
+.register-login-link a:hover {
+  text-decoration: underline;
+}
+
+
+@media (max-width: 700px) {
+  .register-form-grid {
+    grid-template-columns: 1fr;
+  }
 }

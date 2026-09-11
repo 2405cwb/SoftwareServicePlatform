@@ -97,13 +97,16 @@ namespace SoftwareServicePlatform.Api.Controllers
             }
 
             /*
-             * 4. 当前接口只创建客户用户，
-             * 所以必须选择客户。
-             */
-            if (request.CustomerId <= 0)
+    * 4. 客户用户注册时，
+    * 必须填写客户编码。
+    *
+    * 不允许前端直接传数据库 CustomerId。
+    */
+            if (string.IsNullOrWhiteSpace(
+                    request.CustomerCode))
             {
                 return BadRequest(
-                    "请选择所属客户"
+                    "请输入客户编码"
                 );
             }
 
@@ -122,7 +125,20 @@ namespace SoftwareServicePlatform.Api.Controllers
                 request.Username
                     .Trim()
                     .ToLowerInvariant();
-
+            /*
+        * 客户编码统一转成小写进行比较。
+        *
+        * 用户输入：
+        *
+        * WH001
+        * wh001
+        *
+        * 都认为是同一个客户编码。
+        */
+            var customerCode =
+                request.CustomerCode
+                    .Trim()
+                    .ToLowerInvariant();
             /*
              * 5. 检查用户名是否已经存在
              */
@@ -139,20 +155,24 @@ namespace SoftwareServicePlatform.Api.Controllers
             }
 
             /*
-             * 6. 检查客户是否存在
-             */
+   * 根据客户编码寻找客户。
+   *
+   * 不把客户数据库 Id 暴露给注册页面。
+   */
             var customer =
                 await _dbContext.Customers
+                    .AsNoTracking()
                     .FirstOrDefaultAsync(
                         x =>
-                            x.Id ==
-                            request.CustomerId
+                            x.Code.ToLower()
+                            ==
+                            customerCode
                     );
 
             if (customer == null)
             {
                 return BadRequest(
-                    "所属客户不存在"
+                    "客户编码不存在，请联系管理员确认"
                 );
             }
 
@@ -196,8 +216,13 @@ namespace SoftwareServicePlatform.Api.Controllers
                  */
                 Role = "Customer",
 
+                /*
+ * CustomerId 由服务器根据 CustomerCode 得到。
+ *
+ * 不能相信前端自己指定 CustomerId。
+ */
                 CustomerId =
-                    request.CustomerId,
+    customer.Id,
 
                 IsEnabled = true,
 

@@ -9,6 +9,7 @@ import RequireRole from "./components/RequireRole";
 import HomeRedirect from "./components/HomeRedirect";
 
 import LoginPage from "./pages/LoginPage";
+import RegisterPage from "./pages/RegisterPage";
 import CustomerPage from "./pages/CustomerPage";
 import SoftwarePage from "./pages/SoftwarePage";
 import VersionPage from "./pages/VersionPage";
@@ -16,6 +17,7 @@ import ForbiddenPage from "./pages/ForbiddenPage";
 import MySoftwarePage from "./pages/MySoftwarePage";
 import UserPage from "./pages/UserPage";
 import TicketPage from "./pages/TicketPage";
+
 function App() {
   return (
     <Routes>
@@ -25,7 +27,11 @@ function App() {
           登录页面不需要后台布局，
           也不需要 RequireAuth。
           ===================================================== */}
+
       <Route path="/login" element={<LoginPage />} />
+
+      {/* 注册页面同样不需要登录 */}
+      <Route path="/register" element={<RegisterPage />} />
 
       {/* =====================================================
           以下所有页面都要求先登录
