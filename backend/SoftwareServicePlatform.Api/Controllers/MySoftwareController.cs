@@ -22,11 +22,12 @@ namespace SoftwareServicePlatform.Api.Controllers
     public class MySoftwareController : ControllerBase
     {
         private readonly AppDbContext _dbContext;
-
+        private readonly IWebHostEnvironment _environment;
         public MySoftwareController(
-            AppDbContext dbContext)
+            AppDbContext dbContext, IWebHostEnvironment environment)
         {
             _dbContext = dbContext;
+            _environment = environment;
         }
 
 
@@ -323,6 +324,413 @@ namespace SoftwareServicePlatform.Api.Controllers
 
 
             return Ok(result);
+        }
+
+        /// <summary>
+        /// 获取当前 Customer 用户所属的 CustomerId。
+        ///
+        /// 返回 null 表示：
+        ///
+        /// 用户不存在
+        /// 用户已停用
+        /// 没有关联客户
+        /// 客户已停用
+        /// </summary>
+        private async Task<int?> GetCurrentCustomerIdAsync()
+        {
+            /*
+             * 从 JWT 中得到当前 User.Id。
+             */
+            var userIdText =
+                User.FindFirstValue(
+                    ClaimTypes.NameIdentifier
+                );
+
+
+            if (!int.TryParse(
+                    userIdText,
+                    out var userId))
+            {
+                return null;
+            }
+
+
+            /*
+             * 查询当前用户。
+             */
+            var currentUser =
+                await _dbContext.Users
+
+                    .AsNoTracking()
+
+                    .FirstOrDefaultAsync(
+                        x =>
+                            x.Id == userId
+                            &&
+                            x.IsEnabled
+                    );
+
+
+            if (
+                currentUser == null
+                ||
+                !currentUser.CustomerId.HasValue
+            )
+            {
+                return null;
+            }
+
+
+            /*
+             * 客户本身也必须仍然启用。
+             */
+            var customerEnabled =
+                await _dbContext.Customers
+
+                    .AsNoTracking()
+
+                    .AnyAsync(
+                        x =>
+                            x.Id ==
+                            currentUser.CustomerId.Value
+                            &&
+                            x.IsEnabled
+                    );
+
+
+            if (!customerEnabled)
+            {
+                return null;
+            }
+
+
+            return currentUser.CustomerId.Value;
+        }/// <summary>
+         /// 客户查询某个软件版本可见的资料。
+         ///
+         /// GET
+         /// /api/my-software/versions/{versionId}/attachments
+         ///
+         /// Customer 只能看到：
+         ///
+         /// 1. 自己公司已经授权的软件
+         /// 2. 正式发布的 Release 版本
+         /// 3. IsCustomerVisible = true 的资料
+         /// </summary>
+        [HttpGet("versions/{versionId:int}/attachments")]
+        public async Task<IActionResult> GetVersionAttachments(
+            int versionId)
+        {
+            /*
+             * 获取当前客户。
+             */
+            var customerId =
+                await GetCurrentCustomerIdAsync();
+
+
+            if (!customerId.HasValue)
+            {
+                return Forbid();
+            }
+
+
+            /*
+             * 客户门户只允许访问：
+             *
+             * 已发布
+             * Release
+             *
+             * 的版本。
+             */
+            var softwareVersion =
+                await _dbContext.SoftwareVersions
+
+                    .AsNoTracking()
+
+                    .FirstOrDefaultAsync(
+                        x =>
+                            x.Id == versionId
+                            &&
+                            x.IsPublished
+                            &&
+                            x.VersionType == "Release"
+                    );
+
+
+            if (softwareVersion == null)
+            {
+                return NotFound(
+                    "软件版本不存在或尚未发布"
+                );
+            }
+
+
+            /*
+             * 检查这个客户是否真的拥有
+             * 这个版本所属的软件。
+             *
+             * 不能因为客户知道 VersionId，
+             * 就让他查看其他客户的软件资料。
+             */
+            var hasSoftwarePermission =
+                await _dbContext.CustomerSoftwares
+
+                    .AsNoTracking()
+
+                    .AnyAsync(
+                        x =>
+                            x.CustomerId ==
+                            customerId.Value
+                            &&
+                            x.SoftwareId ==
+                            softwareVersion.SoftwareId
+                            &&
+                            x.IsEnabled
+                            &&
+                            x.Software != null
+                            &&
+                            x.Software.IsEnabled
+                    );
+
+
+            if (!hasSoftwarePermission)
+            {
+                return Forbid();
+            }
+
+
+            /*
+             * 最关键的过滤：
+             *
+             * IsCustomerVisible == true
+             *
+             * 问题日志等内部文件
+             * 在这里直接被服务器过滤掉。
+             */
+            var attachments =
+                await _dbContext
+                    .SoftwareVersionAttachments
+
+                    .AsNoTracking()
+
+                    .Where(
+                        x =>
+                            x.SoftwareVersionId ==
+                            versionId
+                            &&
+                            x.IsCustomerVisible
+                    )
+
+                    .OrderBy(
+                        x => x.AttachmentType
+                    )
+
+                    .ThenByDescending(
+                        x => x.CreatedAt
+                    )
+
+                    .Select(
+                        x => new
+                        {
+                            x.Id,
+
+                            x.SoftwareVersionId,
+
+                            x.FileName,
+
+                            x.FileSize,
+
+                            x.ContentType,
+
+                            x.AttachmentType,
+
+                            x.Remark,
+
+                            x.CreatedAt
+                        }
+                    )
+
+                    .ToListAsync();
+
+
+            return Ok(
+                attachments
+            );
+        }/// <summary>
+         /// 客户下载版本附加资料。
+         ///
+         /// GET
+         /// /api/my-software/attachments/{attachmentId}/download
+         /// </summary>
+        [HttpGet("attachments/{attachmentId:int}/download")]
+        public async Task<IActionResult> DownloadAttachment(
+            int attachmentId)
+        {
+            /*
+             * 获取当前客户。
+             */
+            var customerId =
+                await GetCurrentCustomerIdAsync();
+
+
+            if (!customerId.HasValue)
+            {
+                return Forbid();
+            }
+
+
+            /*
+             * 客户只能查询
+             * IsCustomerVisible = true 的附件。
+             */
+            var attachment =
+                await _dbContext
+                    .SoftwareVersionAttachments
+
+                    .AsNoTracking()
+
+                    .FirstOrDefaultAsync(
+                        x =>
+                            x.Id == attachmentId
+                            &&
+                            x.IsCustomerVisible
+                    );
+
+
+            if (attachment == null)
+            {
+                return NotFound(
+                    "附件不存在"
+                );
+            }
+
+
+            /*
+             * 再检查附件所属版本。
+             */
+            var softwareVersion =
+                await _dbContext.SoftwareVersions
+
+                    .AsNoTracking()
+
+                    .FirstOrDefaultAsync(
+                        x =>
+                            x.Id ==
+                            attachment.SoftwareVersionId
+                            &&
+                            x.IsPublished
+                            &&
+                            x.VersionType == "Release"
+                    );
+
+
+            if (softwareVersion == null)
+            {
+                return Forbid();
+            }
+
+
+            /*
+             * 再检查客户有没有这个软件授权。
+             */
+            var hasSoftwarePermission =
+                await _dbContext.CustomerSoftwares
+
+                    .AsNoTracking()
+
+                    .AnyAsync(
+                        x =>
+                            x.CustomerId ==
+                            customerId.Value
+                            &&
+                            x.SoftwareId ==
+                            softwareVersion.SoftwareId
+                            &&
+                            x.IsEnabled
+                            &&
+                            x.Software != null
+                            &&
+                            x.Software.IsEnabled
+                    );
+
+
+            if (!hasSoftwarePermission)
+            {
+                return Forbid();
+            }
+
+
+            /*
+             * 得到附件真实路径。
+             */
+            var physicalFilePath =
+                Path.GetFullPath(
+                    Path.Combine(
+                        _environment.ContentRootPath,
+                        attachment.StoragePath
+                    )
+                );
+
+
+            var storageRoot =
+                Path.GetFullPath(
+                    Path.Combine(
+                        _environment.ContentRootPath,
+                        "Storage",
+                        "VersionAttachments"
+                    )
+                );
+
+
+            /*
+             * 路径后面补目录分隔符。
+             *
+             * 避免类似：
+             *
+             * VersionAttachmentsXXX
+             *
+             * 被误判成合法目录。
+             */
+            var storageRootPrefix =
+                storageRoot.TrimEnd(
+                    Path.DirectorySeparatorChar,
+                    Path.AltDirectorySeparatorChar
+                )
+                +
+                Path.DirectorySeparatorChar;
+
+
+            if (!physicalFilePath.StartsWith(
+                    storageRootPrefix,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(
+                    "附件路径不合法"
+                );
+            }
+
+
+            if (!System.IO.File.Exists(
+                    physicalFilePath))
+            {
+                return NotFound(
+                    "附件文件不存在"
+                );
+            }
+
+
+            return PhysicalFile(
+                physicalFilePath,
+
+                string.IsNullOrWhiteSpace(
+                    attachment.ContentType)
+                    ? "application/octet-stream"
+                    : attachment.ContentType,
+
+                attachment.FileName,
+
+                enableRangeProcessing: true
+            );
         }
     }
 }
