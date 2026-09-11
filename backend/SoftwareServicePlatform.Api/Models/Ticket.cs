@@ -188,5 +188,17 @@
         /// 尚未解决时为 null。
         /// </summary>
         public DateTime? ResolvedAt { get; set; }
+
+
+        /// <summary>
+        /// 当前工单的全部处理记录。
+        ///
+        /// Ticket
+        ///     1
+        ///     ↓
+        ///     N
+        /// TicketRecord
+        /// </summary>
+        public List<TicketRecord> Records { get; set; } = new();
     }
 }

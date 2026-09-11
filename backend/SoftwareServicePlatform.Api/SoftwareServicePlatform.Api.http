@@ -1,5 +1,5 @@
 @SoftwareServicePlatform.Api_HostAddress = http://localhost:5108
-@token =eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjQiLCJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1lIjoiZGV2ZWxvcGVyMDEiLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJEZXZlbG9wZXIiLCJkaXNwbGF5TmFtZSI6Iua1i-ivleW8gOWPkeS6uuWRmCIsIm5iZiI6MTc4ODk1Mzk2OCwiZXhwIjoxNzg4OTYxMTY4LCJpc3MiOiJTb2Z0d2FyZVNlcnZpY2VQbGF0Zm9ybSIsImF1ZCI6IlNvZnR3YXJlU2VydmljZVBsYXRmb3JtLkNsaWVudCJ9._WGSjCd3NaAKFsv9uwFTszCoQik-1DRrIdox24of_0s
+@token =eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjMiLCJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1lIjoiYWRtaW4iLCJodHRwOi8vc2NoZW1hcy5taWNyb3NvZnQuY29tL3dzLzIwMDgvMDYvaWRlbnRpdHkvY2xhaW1zL3JvbGUiOiJBZG1pbiIsImRpc3BsYXlOYW1lIjoiYWRtaW4iLCJjdXN0b21lcklkIjoiOSIsIm5iZiI6MTc4OTA5NTI2MCwiZXhwIjoxNzg5MTAyNDYwLCJpc3MiOiJTb2Z0d2FyZVNlcnZpY2VQbGF0Zm9ybSIsImF1ZCI6IlNvZnR3YXJlU2VydmljZVBsYXRmb3JtLkNsaWVudCJ9.NydQhArQl6je0yftwCmAFjtmI_Cu5UIcadhFjWLu8Eg
 
 GET {{SoftwareServicePlatform.Api_HostAddress}}/weatherforecast/
 Accept: application/json
@@ -177,7 +177,7 @@ Content-Type: application/json
 
 {
   "username": "admin",
-  "password": "12345678"
+  "password": "123456789"
 } 
 
 ###获取用户列表
@@ -230,3 +230,33 @@ Content-Type: application/json
 
 GET http://localhost:5108/api/tickets
 Authorization: Bearer {{token}}
+
+
+### Admin 分配工单
+
+PUT http://localhost:5108/api/tickets/1/assign
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "assignedToUserId": 4
+}
+
+### 登录管理员账户
+POST http://localhost:5108/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "123456789"
+} 
+
+### Admin 第一次分配工单
+
+PUT http://localhost:5108/api/tickets/1/assign
+Authorization: Bearer {{token}} 
+Content-Type: application/json
+
+{
+  "assignedToUserId": 4
+}

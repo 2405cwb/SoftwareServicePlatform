@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SoftwareServicePlatform.Api.Data;
@@ -11,9 +12,11 @@ using SoftwareServicePlatform.Api.Data;
 namespace SoftwareServicePlatform.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260911015417_AddTicketRecordTable")]
+    partial class AddTicketRecordTable
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -337,59 +340,6 @@ namespace SoftwareServicePlatform.Api.Migrations
                     b.ToTable("Tickets");
                 });
 
-            modelBuilder.Entity("SoftwareServicePlatform.Api.Models.TicketAttachment", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("ContentType")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<long>("FileSize")
-                        .HasColumnType("bigint");
-
-                    b.Property<bool>("IsInternal")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("StoragePath")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("StoredFileName")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int>("TicketId")
-                        .HasColumnType("integer");
-
-                    b.Property<int?>("TicketRecordId")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("UploadedByUserId")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TicketId");
-
-                    b.HasIndex("TicketRecordId");
-
-                    b.HasIndex("UploadedByUserId");
-
-                    b.ToTable("TicketAttachments");
-                });
-
             modelBuilder.Entity("SoftwareServicePlatform.Api.Models.TicketRecord", b =>
                 {
                     b.Property<int>("Id")
@@ -546,32 +496,6 @@ namespace SoftwareServicePlatform.Api.Migrations
                     b.Navigation("Customer");
 
                     b.Navigation("Software");
-                });
-
-            modelBuilder.Entity("SoftwareServicePlatform.Api.Models.TicketAttachment", b =>
-                {
-                    b.HasOne("SoftwareServicePlatform.Api.Models.Ticket", "Ticket")
-                        .WithMany()
-                        .HasForeignKey("TicketId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("SoftwareServicePlatform.Api.Models.TicketRecord", "TicketRecord")
-                        .WithMany()
-                        .HasForeignKey("TicketRecordId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.HasOne("SoftwareServicePlatform.Api.Models.User", "UploadedByUser")
-                        .WithMany()
-                        .HasForeignKey("UploadedByUserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Ticket");
-
-                    b.Navigation("TicketRecord");
-
-                    b.Navigation("UploadedByUser");
                 });
 
             modelBuilder.Entity("SoftwareServicePlatform.Api.Models.TicketRecord", b =>
