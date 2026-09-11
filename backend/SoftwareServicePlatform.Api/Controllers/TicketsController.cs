@@ -991,7 +991,40 @@ namespace SoftwareServicePlatform.Api.Controllers
                     "工单不存在"
                 );
             }
+            /*
+ * Developer 只能重新分配
+ * 当前已经分配给自己的工单。
+ *
+ * 不能修改其他开发人员的工单。
+ */
+var currentUser =
+    await _dbContext.Users
+        .AsNoTracking()
+        .FirstOrDefaultAsync(
+            x =>
+                x.Id == currentUserId
+                &&
+                x.IsEnabled
+        );
 
+
+if (currentUser == null)
+{
+    return Unauthorized(
+        "当前用户不存在或已停用"
+    );
+}
+
+
+if (currentUser.Role == "Developer")
+{
+    if (ticket.AssignedToUserId
+        !=
+        currentUser.Id)
+    {
+        return Forbid();
+    }
+}
 
             /*
              * ==========================================
@@ -1090,7 +1123,20 @@ namespace SoftwareServicePlatform.Api.Controllers
                     "工单只能分配给售后人员或开发人员"
                 );
             }
-
+            /*
+ * Developer 转交工单时，
+ * 只能转给其他 Developer。
+ *
+ * Admin / Support 不受这个限制。
+ */
+            if (currentUser.Role == "Developer"
+                &&
+                assignedUser.Role != "Developer")
+            {
+                return BadRequest(
+                    "开发人员只能将工单转交给其他开发人员"
+                );
+            }
 
             /*
     * ==========================================
