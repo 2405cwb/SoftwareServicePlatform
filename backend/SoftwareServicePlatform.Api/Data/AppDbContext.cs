@@ -157,6 +157,50 @@ namespace SoftwareServicePlatform.Api.Data
                 .WithMany()
                 .HasForeignKey(x => x.AssignedToUserId)
                 .OnDelete(DeleteBehavior.SetNull);
+
+
+            /*
+ * ==========================================
+ * TicketRecord 工单处理记录配置
+ * ==========================================
+ */
+
+
+            /*
+             * Ticket
+             *    1
+             *    ↓
+             *    N
+             * TicketRecord
+             *
+             * 删除 Ticket 时，
+             * 它下面的处理记录也一起删除。
+             *
+             * 为什么这里适合 Cascade：
+             *
+             * TicketRecord 本身没有脱离 Ticket
+             * 独立存在的意义。
+             */
+            modelBuilder.Entity<TicketRecord>()
+                .HasOne(x => x.Ticket)
+                .WithMany(x => x.Records)
+                .HasForeignKey(x => x.TicketId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+
+            /*
+ * TicketRecord -> CreatedByUser
+ *
+ * 每一条处理记录都必须知道是谁写的。
+ *
+ * 不允许因为删除一个用户，
+ * 就把历史处理记录全部删除。
+ */
+            modelBuilder.Entity<TicketRecord>()
+                .HasOne(x => x.CreatedByUser)
+                .WithMany()
+                .HasForeignKey(x => x.CreatedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
         }
         public DbSet<Models.Customer> Customers { get; set; } = null!;
         public DbSet<Software> Softwares { get; set; }
@@ -174,5 +218,10 @@ namespace SoftwareServicePlatform.Api.Data
         /// 工单数据。
         /// </summary>
         public DbSet<Ticket> Tickets { get; set; }
+
+        /// <summary>
+        /// 工单处理记录。
+        /// </summary>
+        public DbSet<TicketRecord> TicketRecords { get; set; }
     }
 }
