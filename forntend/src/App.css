@@ -3404,4 +3404,16 @@ button {
   .register-form-grid {
     grid-template-columns: 1fr;
   }
+}.login-success {
+  margin-bottom: 16px;
+  padding: 10px 12px;
+
+  border: 1px solid #b7e4c7;
+  border-radius: 6px;
+
+  background: #f0fff4;
+
+  color: #2d6a4f;
+
+  font-size: 14px;
 }
