@@ -394,6 +394,13 @@ namespace SoftwareServicePlatform.Api.Controllers
 
 
                     /*
+                    * 当前 CreateTicket 接口
+                    * 只能由 Customer 在客户门户提交，
+                    * 所以来源一定是 Portal。
+                    */
+                    Source = "Portal",
+
+                    /*
                      * 新工单默认待处理。
                      */
                     Status =
@@ -433,11 +440,19 @@ namespace SoftwareServicePlatform.Api.Controllers
 
 
                     UpdatedAt =
-                        now,
+    now,
+
+
+                    FirstResponseAt =
+    null,
 
 
                     ResolvedAt =
-                        null
+    null,
+
+
+                    ClosedAt =
+    null
                 };
 
 
@@ -868,14 +883,17 @@ namespace SoftwareServicePlatform.Api.Controllers
                                     : x.AssignedToUser.DisplayName,
 
 
-                            /*
-                             * 时间
-                             */
+                            x.Source,
+
                             x.CreatedAt,
 
                             x.UpdatedAt,
 
-                            x.ResolvedAt
+                            x.FirstResponseAt,
+
+                            x.ResolvedAt,
+
+                            x.ClosedAt
                         }
                     )
 
@@ -1462,12 +1480,10 @@ if (currentUser.Role == "Developer")
              */
 
             var ticket =
-                await _dbContext.Tickets
-                    .AsNoTracking()
-                    .FirstOrDefaultAsync(
-                        x => x.Id == id
-                    );
-
+     await _dbContext.Tickets
+         .FirstOrDefaultAsync(
+             x => x.Id == id
+         );
 
             if (ticket == null)
             {
@@ -1575,6 +1591,52 @@ if (currentUser.Role == "Developer")
                 );
             }
 
+            /*
+ * 本次处理记录统一使用同一个时间。
+ */
+            var now =
+                DateTime.UtcNow;
+
+
+            /*
+             * ==========================================
+             * 记录首次响应时间
+             * ==========================================
+             *
+             * 首次响应必须满足：
+             *
+             * 1. 不是 Customer 自己回复
+             * 2. 不是内部备注
+             * 3. FirstResponseAt 还没有记录
+             *
+             * Admin / Support / Developer
+             * 第一次给客户公开回复，
+             * 才算真正首次响应。
+             */
+            var isStaffPublicReply =
+                currentUser.Role != "Customer"
+                &&
+                !request.IsInternal;
+
+
+            if (
+                isStaffPublicReply
+                &&
+                !ticket.FirstResponseAt.HasValue
+            )
+            {
+                ticket.FirstResponseAt =
+                    now;
+            }
+
+
+            /*
+             * 有新的处理记录，
+             * 工单最后更新时间也应该变化。
+             */
+            ticket.UpdatedAt =
+                now;
+
 
             /*
              * ==========================================
@@ -1609,7 +1671,7 @@ if (currentUser.Role == "Developer")
 
 
                     CreatedAt =
-                        DateTime.UtcNow
+                      now
                 };
 
 
@@ -2100,7 +2162,16 @@ if (currentUser.Role == "Developer")
 
             var now =
                 DateTime.UtcNow;
-
+            /*
+ * 如果前面从来没有公开回复，
+ * 而工作人员直接给出了“解决说明”，
+ * 那么这次解决说明就是第一次正式响应。
+ */
+            if (!ticket.FirstResponseAt.HasValue)
+            {
+                ticket.FirstResponseAt =
+                    now;
+            }
 
             ticket.Status =
                 "Resolved";
@@ -2447,7 +2518,14 @@ if (currentUser.Role == "Developer")
 
 
             ticket.Status =
-                "Closed";
+       "Closed";
+
+
+            /*
+             * 记录工单真正结束的时间。
+             */
+            ticket.ClosedAt =
+                now;
 
 
             ticket.UpdatedAt =
@@ -2534,7 +2612,11 @@ if (currentUser.Role == "Developer")
 
                     ticket.Status,
 
+                    ticket.FirstResponseAt,
+
                     ticket.ResolvedAt,
+
+                    ticket.ClosedAt,
 
                     ticket.UpdatedAt,
 
@@ -2745,30 +2827,34 @@ if (currentUser.Role == "Developer")
                 DateTime.UtcNow;
 
 
-            /*
-             * 为什么重新打开以后直接 Processing？
-             *
-             * 因为这个工单之前已经有处理人，
-             * 不属于一个完全新的 Pending 工单。
-             *
-             * 当前第一版继续由原处理人负责。
-             */
-
             ticket.Status =
-                "Processing";
+     "Processing";
 
 
             /*
-             * 工单重新进入处理，
-             * 原来的 ResolvedAt 已经不再代表
-             * 当前最终解决时间。
-             *
-             * 所以清空。
+             * 问题重新进入处理流程，
+             * 原来的“最终解决时间”失效。
              */
             ticket.ResolvedAt =
                 null;
 
 
+            /*
+             * 如果原来已经 Closed，
+             * 重新打开以后当然就不再是关闭状态，
+             * 所以关闭时间也要清空。
+             */
+            ticket.ClosedAt =
+                null;
+
+
+            /*
+             * FirstResponseAt 不清空。
+             *
+             * 因为它描述的是：
+             *
+             * 这个工单历史上第一次响应发生在什么时候。
+             */
             ticket.UpdatedAt =
                 now;
 
@@ -2836,7 +2922,11 @@ if (currentUser.Role == "Developer")
 
                     ticket.AssignedToUserId,
 
+                    ticket.FirstResponseAt,
+
                     ticket.ResolvedAt,
+
+                    ticket.ClosedAt,
 
                     ticket.UpdatedAt,
 

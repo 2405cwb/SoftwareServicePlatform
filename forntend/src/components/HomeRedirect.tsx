@@ -50,14 +50,15 @@ function HomeRedirect() {
        * 默认进入客户管理。
        */
       case "Admin":
-        return <Navigate to="/customers" replace />;
+        return <Navigate to="/dashboard" replace />;
 
       /*
        * 售后：
        * 暂时默认客户管理。
        */
+
       case "Support":
-        return <Navigate to="/customers" replace />;
+        return <Navigate to="/dashboard" replace />;
 
       /*
        * 销售：
