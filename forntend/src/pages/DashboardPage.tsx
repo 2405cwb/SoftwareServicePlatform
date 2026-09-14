@@ -11,6 +11,8 @@ import {
   RefreshCw,
   TrendingUp,
   ChartPie,
+  Download,
+  FileDown,
 } from "lucide-react";
 
 import { apiFetch } from "../services/api";
@@ -72,7 +74,27 @@ interface RecentTicket {
   createdAt: string;
   updatedAt: string;
 }
+interface DownloadSummary {
+  totalDownloads: number;
+  thisMonthDownloads: number;
+}
 
+interface DownloadTrendItem {
+  date: string;
+  count: number;
+}
+
+interface SoftwareDownloadRanking {
+  softwareId: number | null;
+  softwareName: string;
+  downloadCount: number;
+}
+
+interface CustomerDownloadRanking {
+  customerId: number | null;
+  customerName: string;
+  downloadCount: number;
+}
 function DashboardPage() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
 
@@ -89,7 +111,20 @@ function DashboardPage() {
   >([]);
 
   const [recentTickets, setRecentTickets] = useState<RecentTicket[]>([]);
+  const [downloadSummary, setDownloadSummary] = useState<DownloadSummary>({
+    totalDownloads: 0,
+    thisMonthDownloads: 0,
+  });
 
+  const [downloadTrend, setDownloadTrend] = useState<DownloadTrendItem[]>([]);
+
+  const [softwareDownloadRanking, setSoftwareDownloadRanking] = useState<
+    SoftwareDownloadRanking[]
+  >([]);
+
+  const [customerDownloadRanking, setCustomerDownloadRanking] = useState<
+    CustomerDownloadRanking[]
+  >([]);
   const [loading, setLoading] = useState(true);
 
   const [errorMessage, setErrorMessage] = useState("");
@@ -116,6 +151,11 @@ function DashboardPage() {
         softwareRankingResponse,
         customerRankingResponse,
         recentTicketsResponse,
+
+        downloadSummaryResponse,
+        downloadTrendResponse,
+        softwareDownloadRankingResponse,
+        customerDownloadRankingResponse,
       ] = await Promise.all([
         apiFetch("/api/dashboard/summary"),
 
@@ -128,6 +168,14 @@ function DashboardPage() {
         apiFetch("/api/dashboard/customer-ticket-ranking"),
 
         apiFetch("/api/dashboard/recent-tickets"),
+
+        apiFetch("/api/dashboard/download-summary"),
+
+        apiFetch("/api/dashboard/download-trend"),
+
+        apiFetch("/api/dashboard/software-download-ranking"),
+
+        apiFetch("/api/dashboard/customer-download-ranking"),
       ]);
 
       if (!summaryResponse.ok) {
@@ -156,6 +204,25 @@ function DashboardPage() {
       if (!recentTicketsResponse.ok) {
         throw new Error(`加载最近工单失败：${recentTicketsResponse.status}`);
       }
+      if (!downloadSummaryResponse.ok) {
+        throw new Error(`加载下载汇总失败：${downloadSummaryResponse.status}`);
+      }
+
+      if (!downloadTrendResponse.ok) {
+        throw new Error(`加载下载趋势失败：${downloadTrendResponse.status}`);
+      }
+
+      if (!softwareDownloadRankingResponse.ok) {
+        throw new Error(
+          `加载软件下载排行失败：${softwareDownloadRankingResponse.status}`,
+        );
+      }
+
+      if (!customerDownloadRankingResponse.ok) {
+        throw new Error(
+          `加载客户下载排行失败：${customerDownloadRankingResponse.status}`,
+        );
+      }
 
       const summaryData = (await summaryResponse.json()) as DashboardSummary;
 
@@ -171,6 +238,17 @@ function DashboardPage() {
 
       const recentTicketsData =
         (await recentTicketsResponse.json()) as RecentTicket[];
+      const downloadSummaryData =
+        (await downloadSummaryResponse.json()) as DownloadSummary;
+
+      const downloadTrendData =
+        (await downloadTrendResponse.json()) as DownloadTrendItem[];
+
+      const softwareDownloadRankingData =
+        (await softwareDownloadRankingResponse.json()) as SoftwareDownloadRanking[];
+
+      const customerDownloadRankingData =
+        (await customerDownloadRankingResponse.json()) as CustomerDownloadRanking[];
 
       setSummary(summaryData);
 
@@ -182,6 +260,14 @@ function DashboardPage() {
       setCustomerRanking(customerRankingData);
 
       setRecentTickets(recentTicketsData);
+
+      setDownloadSummary(downloadSummaryData);
+
+      setDownloadTrend(downloadTrendData);
+
+      setSoftwareDownloadRanking(softwareDownloadRankingData);
+
+      setCustomerDownloadRanking(customerDownloadRankingData);
     } catch (error) {
       console.error("加载 Dashboard 失败：", error);
 
@@ -393,7 +479,7 @@ function DashboardPage() {
         },
       ],
     }),
-    [ticketStatus],
+    [ticketTrend],
   );
   const totalTickets = summary?.totalTickets ?? 0;
   /**
@@ -683,7 +769,310 @@ function DashboardPage() {
     }),
     [customerRanking],
   );
+  const downloadTrendOption = useMemo(
+    () => ({
+      tooltip: {
+        trigger: "axis",
 
+        formatter: (params: any[]) => {
+          const item = params?.[0];
+
+          if (!item) {
+            return "";
+          }
+
+          const source = downloadTrend[item.dataIndex];
+
+          return `
+            ${source.date}<br/>
+            下载次数：<strong>${source.count}</strong>
+          `;
+        },
+      },
+
+      grid: {
+        left: 48,
+        right: 25,
+        top: 30,
+        bottom: 42,
+      },
+
+      xAxis: {
+        type: "category",
+
+        boundaryGap: false,
+
+        data: downloadTrend.map((item) => item.date.substring(5)),
+
+        axisLine: {
+          lineStyle: {
+            color: "#dbe3ee",
+          },
+        },
+
+        axisTick: {
+          show: false,
+        },
+
+        axisLabel: {
+          color: "#64748b",
+          interval: 4,
+        },
+      },
+
+      yAxis: {
+        type: "value",
+
+        minInterval: 1,
+
+        axisLabel: {
+          color: "#64748b",
+        },
+
+        splitLine: {
+          lineStyle: {
+            color: "#edf1f5",
+          },
+        },
+      },
+
+      series: [
+        {
+          name: "软件下载",
+
+          type: "line",
+
+          smooth: true,
+
+          showSymbol: false,
+
+          symbol: "circle",
+
+          symbolSize: 7,
+
+          data: downloadTrend.map((item) => item.count),
+
+          lineStyle: {
+            width: 3,
+            color: "#7c3aed",
+          },
+
+          itemStyle: {
+            color: "#7c3aed",
+          },
+
+          areaStyle: {
+            color: {
+              type: "linear",
+
+              x: 0,
+              y: 0,
+              x2: 0,
+              y2: 1,
+
+              colorStops: [
+                {
+                  offset: 0,
+                  color: "rgba(124, 58, 237, 0.25)",
+                },
+                {
+                  offset: 1,
+                  color: "rgba(124, 58, 237, 0.02)",
+                },
+              ],
+            },
+          },
+        },
+      ],
+    }),
+    [downloadTrend],
+  );
+
+  const softwareDownloadRankingOption = useMemo(
+    () => ({
+      tooltip: {
+        trigger: "axis",
+
+        axisPointer: {
+          type: "shadow",
+        },
+
+        formatter: (params: any[]) => {
+          const item = params?.[0];
+
+          if (!item) {
+            return "";
+          }
+
+          return `
+            ${item.name}<br/>
+            下载次数：<strong>${item.value}</strong>
+          `;
+        },
+      },
+
+      grid: {
+        left: 20,
+        right: 35,
+        top: 20,
+        bottom: 15,
+        containLabel: true,
+      },
+
+      xAxis: {
+        type: "value",
+
+        minInterval: 1,
+
+        axisLabel: {
+          color: "#94a3b8",
+        },
+
+        splitLine: {
+          lineStyle: {
+            color: "#f1f5f9",
+          },
+        },
+      },
+
+      yAxis: {
+        type: "category",
+
+        inverse: true,
+
+        data: softwareDownloadRanking.map((item) => item.softwareName),
+
+        axisTick: {
+          show: false,
+        },
+
+        axisLine: {
+          show: false,
+        },
+
+        axisLabel: {
+          width: 150,
+          overflow: "truncate",
+          color: "#475569",
+        },
+      },
+
+      series: [
+        {
+          type: "bar",
+
+          barWidth: 18,
+
+          data: softwareDownloadRanking.map((item) => item.downloadCount),
+
+          itemStyle: {
+            color: "#7c3aed",
+            borderRadius: [0, 6, 6, 0],
+          },
+
+          label: {
+            show: true,
+            position: "right",
+            color: "#475569",
+          },
+        },
+      ],
+    }),
+    [softwareDownloadRanking],
+  );
+
+  const customerDownloadRankingOption = useMemo(
+    () => ({
+      tooltip: {
+        trigger: "axis",
+
+        axisPointer: {
+          type: "shadow",
+        },
+
+        formatter: (params: any[]) => {
+          const item = params?.[0];
+
+          if (!item) {
+            return "";
+          }
+
+          return `
+            ${item.name}<br/>
+            下载次数：<strong>${item.value}</strong>
+          `;
+        },
+      },
+
+      grid: {
+        left: 20,
+        right: 35,
+        top: 20,
+        bottom: 15,
+        containLabel: true,
+      },
+
+      xAxis: {
+        type: "value",
+
+        minInterval: 1,
+
+        axisLabel: {
+          color: "#94a3b8",
+        },
+
+        splitLine: {
+          lineStyle: {
+            color: "#f1f5f9",
+          },
+        },
+      },
+
+      yAxis: {
+        type: "category",
+
+        inverse: true,
+
+        data: customerDownloadRanking.map((item) => item.customerName),
+
+        axisTick: {
+          show: false,
+        },
+
+        axisLine: {
+          show: false,
+        },
+
+        axisLabel: {
+          width: 150,
+          overflow: "truncate",
+          color: "#475569",
+        },
+      },
+
+      series: [
+        {
+          type: "bar",
+
+          barWidth: 18,
+
+          data: customerDownloadRanking.map((item) => item.downloadCount),
+
+          itemStyle: {
+            color: "#14b8a6",
+            borderRadius: [0, 6, 6, 0],
+          },
+
+          label: {
+            show: true,
+            position: "right",
+            color: "#475569",
+          },
+        },
+      ],
+    }),
+    [customerDownloadRanking],
+  );
   if (loading) {
     return (
       <div className="content">
@@ -777,6 +1166,30 @@ function DashboardPage() {
       icon: <Clock3 size={22} />,
 
       className: "dashboard-kpi-cyan",
+    },
+
+    {
+      title: "累计下载",
+
+      value: downloadSummary.totalDownloads,
+
+      description: "安装包累计下载次数",
+
+      icon: <Download size={22} />,
+
+      className: "dashboard-kpi-indigo",
+    },
+
+    {
+      title: "本月下载",
+
+      value: downloadSummary.thisMonthDownloads,
+
+      description: "本月安装包下载次数",
+
+      icon: <FileDown size={22} />,
+
+      className: "dashboard-kpi-rose",
     },
   ];
 
@@ -924,6 +1337,99 @@ function DashboardPage() {
           ) : (
             <ReactECharts
               option={customerRankingOption}
+              style={{
+                height: "300px",
+                width: "100%",
+              }}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* =================================================
+    下载统计
+    ================================================= */}
+      <div className="dashboard-section-heading">
+        <div>
+          <div className="dashboard-section-title">下载分析</div>
+
+          <div className="dashboard-card-description">
+            软件版本的客户下载与使用情况
+          </div>
+        </div>
+      </div>
+
+      <div className="dashboard-chart-grid">
+        <div
+          className="
+      dashboard-chart-card
+      dashboard-full-chart-card
+    "
+        >
+          <div className="dashboard-card-header">
+            <div>
+              <div className="dashboard-card-title">
+                <Download size={18} />
+                下载趋势
+              </div>
+
+              <div className="dashboard-card-description">
+                最近30天软件安装包下载次数
+              </div>
+            </div>
+          </div>
+
+          <ReactECharts
+            option={downloadTrendOption}
+            style={{
+              height: "320px",
+              width: "100%",
+            }}
+          />
+        </div>
+      </div>
+
+      <div className="dashboard-ranking-grid">
+        <div className="dashboard-chart-card">
+          <div className="dashboard-card-header">
+            <div>
+              <div className="dashboard-card-title">软件下载 TOP5</div>
+
+              <div className="dashboard-card-description">
+                按安装包下载次数统计
+              </div>
+            </div>
+          </div>
+
+          {softwareDownloadRanking.length === 0 ? (
+            <div className="dashboard-empty">暂无软件下载数据</div>
+          ) : (
+            <ReactECharts
+              option={softwareDownloadRankingOption}
+              style={{
+                height: "300px",
+                width: "100%",
+              }}
+            />
+          )}
+        </div>
+
+        <div className="dashboard-chart-card">
+          <div className="dashboard-card-header">
+            <div>
+              <div className="dashboard-card-title">客户下载 TOP5</div>
+
+              <div className="dashboard-card-description">
+                按客户安装包下载次数统计
+              </div>
+            </div>
+          </div>
+
+          {customerDownloadRanking.length === 0 ? (
+            <div className="dashboard-empty">暂无客户下载数据</div>
+          ) : (
+            <ReactECharts
+              option={customerDownloadRankingOption}
               style={{
                 height: "300px",
                 width: "100%",

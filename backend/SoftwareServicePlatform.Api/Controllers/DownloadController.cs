@@ -1,11 +1,12 @@
-﻿using System.Security.Claims;
-using System.Security.Cryptography;
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using SoftwareServicePlatform.Api.Data;
+using SoftwareServicePlatform.Api.Models;
 using SoftwareServicePlatform.Api.Services;
+using System.Security.Claims;
+using System.Security.Cryptography;
 
 namespace SoftwareServicePlatform.Api.Controllers
 {
@@ -31,17 +32,19 @@ namespace SoftwareServicePlatform.Api.Controllers
 
         private readonly IMemoryCache _memoryCache;
 
-
+        private readonly ILogger<DownloadController> _logger;
         public DownloadController(
             AppDbContext dbContext,
             IWebHostEnvironment environment,
-            IMemoryCache memoryCache)
+            IMemoryCache memoryCache,
+            ILogger<DownloadController> logger)
         {
             _dbContext = dbContext;
 
             _environment = environment;
 
             _memoryCache = memoryCache;
+            _logger = logger;
         }
 
 
@@ -570,7 +573,139 @@ namespace SoftwareServicePlatform.Api.Controllers
                 downloadFileName =
                     Path.GetFileName(fullPath);
             }
+            /*
+ * ========================================
+ * 7. 写入软件下载记录
+ * ========================================
+ *
+ * 注意：
+ *
+ * 这里不是“申请下载 ticket”时记录。
+ *
+ * 到达这里说明：
+ *
+ * 用户有效
+ * 客户有效
+ * 软件有效
+ * 版本有效
+ * 客户仍然拥有软件
+ * 安装包真实存在
+ *
+ * 已经准备真正向浏览器发送文件。
+ *
+ * 所以这里才认为一次下载真正开始。
+ */
+            if (ticketInfo.TryMarkDownloadRecordCreated())
+            {
+                try
+                {
+                    /*
+                     * 使用磁盘真实文件大小。
+                     *
+                     * 不完全依赖数据库 PackageFileSize，
+                     * 避免历史数据不一致。
+                     */
+                    var fileInfo =
+                        new FileInfo(
+                            fullPath
+                        );
 
+
+                    var downloadRecord =
+                        new DownloadRecord
+                        {
+                            /*
+                             * 用户
+                             */
+                            UserId =
+                                currentUser.Id,
+
+                            UserName =
+                                currentUser.Username,
+
+                            UserDisplayName =
+                                currentUser.DisplayName,
+
+
+                            /*
+                             * 客户
+                             */
+                            CustomerId =
+                                currentUser.CustomerId.Value,
+
+                            CustomerName =
+                                currentUser.Customer?.Name
+                                ?? string.Empty,
+
+
+                            /*
+                             * 软件
+                             */
+                            SoftwareId =
+                                softwareVersion.SoftwareId,
+
+                            SoftwareName =
+                                softwareVersion.Software.Name,
+
+
+                            /*
+                             * 软件版本
+                             */
+                            SoftwareVersionId =
+                                softwareVersion.Id,
+
+                            Version =
+                                softwareVersion.Version,
+
+
+                            /*
+                             * 下载文件
+                             */
+                            FileName =
+                                downloadFileName,
+
+                            FileSize =
+                                fileInfo.Length,
+
+
+                            /*
+                             * 下载开始时间
+                             */
+                            DownloadedAt =
+                                DateTime.UtcNow
+                        };
+
+
+                    _dbContext.DownloadRecords.Add(
+                        downloadRecord
+                    );
+
+
+                    await _dbContext.SaveChangesAsync();
+                }
+                catch (Exception ex)
+                {
+                    /*
+                     * 下载日志写入失败不能直接导致
+                     * 客户无法下载软件。
+                     *
+                     * 所以：
+                     *
+                     * 1. 恢复去重标记
+                     * 2. 记录服务器错误日志
+                     * 3. 文件仍然继续下载
+                     */
+                    ticketInfo.ResetDownloadRecordCreated();
+
+
+                    _logger.LogError(
+                        ex,
+                        "记录软件下载历史失败。UserId={UserId}, VersionId={VersionId}",
+                        currentUser.Id,
+                        softwareVersion.Id
+                    );
+                }
+            }
 
             /*
              * ========================================

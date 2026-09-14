@@ -730,5 +730,273 @@ namespace SoftwareServicePlatform.Api.Controllers
 
             return Ok(result);
         }
+        /// <summary>
+        /// 下载数据汇总。
+        ///
+        /// GET:
+        /// /api/dashboard/download-summary
+        /// </summary>
+        [HttpGet("download-summary")]
+        public async Task<IActionResult> GetDownloadSummary()
+        {
+            var now =
+                DateTime.UtcNow;
+
+            var monthStart =
+                new DateTime(
+                    now.Year,
+                    now.Month,
+                    1,
+                    0,
+                    0,
+                    0,
+                    DateTimeKind.Utc
+                );
+
+
+            /*
+             * 历史累计下载次数。
+             */
+            var totalDownloads =
+                await _dbContext.DownloadRecords
+                    .AsNoTracking()
+                    .CountAsync();
+
+
+            /*
+             * 本月下载次数。
+             */
+            var thisMonthDownloads =
+                await _dbContext.DownloadRecords
+                    .AsNoTracking()
+                    .CountAsync(
+                        x =>
+                            x.DownloadedAt >= monthStart
+                    );
+
+
+            return Ok(
+                new
+                {
+                    totalDownloads,
+
+                    thisMonthDownloads
+                }
+            );
+        }
+        
+      
+        /// <summary>
+        /// 最近30天软件下载趋势。
+        ///
+        /// GET:
+        /// /api/dashboard/download-trend
+        /// </summary>
+        [HttpGet("download-trend")]
+        public async Task<IActionResult> GetDownloadTrend()
+        {
+            var today =
+                DateTime.UtcNow.Date;
+
+            /*
+             * 包含今天，共30天。
+             */
+            var startDate =
+                today.AddDays(-29);
+
+
+            /*
+             * 这里只取统计真正需要的时间字段。
+             */
+            var records =
+                await _dbContext.DownloadRecords
+
+                    .AsNoTracking()
+
+                    .Where(
+                        x =>
+                            x.DownloadedAt >= startDate
+                    )
+
+                    .Select(
+                        x =>
+                            x.DownloadedAt
+                    )
+
+                    .ToListAsync();
+
+
+            /*
+             * 按日期统计下载次数。
+             */
+            var countMap =
+                records
+
+                    .GroupBy(
+                        x =>
+                            x.Date
+                    )
+
+                    .ToDictionary(
+                        x => x.Key,
+
+                        x => x.Count()
+                    );
+
+
+            /*
+             * 即使某一天没有下载，
+             * 也要返回 count = 0。
+             *
+             * 否则前端折线图日期会断掉。
+             */
+            var result =
+                Enumerable.Range(
+                    0,
+                    30
+                )
+
+                .Select(
+                    index =>
+                    {
+                        var date =
+                            startDate.AddDays(
+                                index
+                            );
+
+                        return new
+                        {
+                            date =
+                                date.ToString(
+                                    "yyyy-MM-dd"
+                                ),
+
+                            count =
+                                countMap
+                                    .GetValueOrDefault(
+                                        date,
+                                        0
+                                    )
+                        };
+                    }
+                )
+
+                .ToList();
+
+
+            return Ok(result);
+        }
+        /// <summary>
+        /// 下载次数最多的软件 TOP5。
+        ///
+        /// GET:
+        /// /api/dashboard/software-download-ranking
+        /// </summary>
+        [HttpGet("software-download-ranking")]
+        public async Task<IActionResult> GetSoftwareDownloadRanking()
+        {
+            var result =
+                await _dbContext.DownloadRecords
+
+                    .AsNoTracking()
+
+                    /*
+                     * 使用下载时的软件名称快照。
+                     */
+                    .GroupBy(
+                        x => new
+                        {
+                            x.SoftwareId,
+
+                            x.SoftwareName
+                        }
+                    )
+
+                    .Select(
+                        group => new
+                        {
+                            softwareId =
+                                group.Key.SoftwareId,
+
+                            softwareName =
+                                group.Key.SoftwareName,
+
+                            downloadCount =
+                                group.Count()
+                        }
+                    )
+
+                    .OrderByDescending(
+                        x =>
+                            x.downloadCount
+                    )
+
+                    .ThenBy(
+                        x =>
+                            x.softwareName
+                    )
+
+                    .Take(5)
+
+                    .ToListAsync();
+
+
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// 软件下载安装次数最多的客户 TOP5。
+        ///
+        /// GET:
+        /// /api/dashboard/customer-download-ranking
+        /// </summary>
+        [HttpGet("customer-download-ranking")]
+        public async Task<IActionResult> GetCustomerDownloadRanking()
+        {
+            var result =
+                await _dbContext.DownloadRecords
+
+                    .AsNoTracking()
+
+                    .GroupBy(
+                        x => new
+                        {
+                            x.CustomerId,
+
+                            x.CustomerName
+                        }
+                    )
+
+                    .Select(
+                        group => new
+                        {
+                            customerId =
+                                group.Key.CustomerId,
+
+                            customerName =
+                                group.Key.CustomerName,
+
+                            downloadCount =
+                                group.Count()
+                        }
+                    )
+
+                    .OrderByDescending(
+                        x =>
+                            x.downloadCount
+                    )
+
+                    .ThenBy(
+                        x =>
+                            x.customerName
+                    )
+
+                    .Take(5)
+
+                    .ToListAsync();
+
+
+            return Ok(result);
+        }
     }
 }
