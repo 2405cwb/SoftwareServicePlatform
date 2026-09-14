@@ -19,7 +19,7 @@ import UserPage from "./pages/UserPage";
 import TicketPage from "./pages/TicketPage";
 import DashboardPage from "./pages/DashboardPage";
 import DownloadRecordPage from "./pages/DownloadRecordPage";
-
+import SlaSettingsPage from "./pages/SlaSettingsPage";
 function App() {
   return (
     <Routes>
@@ -86,7 +86,14 @@ function App() {
           <Route element={<RequireRole allowedRoles={["Admin"]} />}>
             <Route path="/users" element={<UserPage />} />
           </Route>
+          {/* =================================================
+    SLA 设置
 
+    仅 Admin
+    ================================================= */}
+          <Route element={<RequireRole allowedRoles={["Admin"]} />}>
+            <Route path="/sla-settings" element={<SlaSettingsPage />} />
+          </Route>
           {/* =================================================
     数据概览
 

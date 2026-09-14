@@ -13,6 +13,10 @@ import {
   ChartPie,
   Download,
   FileDown,
+  ShieldCheck,
+  ShieldAlert,
+  TriangleAlert,
+  TimerOff,
 } from "lucide-react";
 
 import { apiFetch } from "../services/api";
@@ -29,7 +33,134 @@ interface DashboardSummary {
   averageFirstResponseMinutes: number | null;
   generatedAtUtc: string;
 }
+interface TicketEfficiencySummary {
+  totalTickets: number;
 
+  openTickets: number;
+
+  respondedTickets: number;
+
+  resolvedTickets: number;
+
+  responseRate: number;
+
+  resolutionRate: number;
+
+  averageFirstResponseMinutes: number | null;
+
+  averageResolutionMinutes: number | null;
+
+  averageCloseMinutes: number | null;
+
+  responseSampleCount: number;
+
+  resolutionSampleCount: number;
+
+  closeSampleCount: number;
+}
+interface TicketSlaSummary {
+  slaTicketCount: number;
+
+  responseEvaluatedCount: number;
+  responseMetCount: number;
+  responseBreachedCount: number;
+  currentResponseOverdueCount: number;
+  responseComplianceRate: number | null;
+
+  resolutionEvaluatedCount: number;
+  resolutionMetCount: number;
+  resolutionBreachedCount: number;
+  currentResolutionOverdueCount: number;
+  resolutionComplianceRate: number | null;
+}
+
+interface TicketSlaOverdueItem {
+  id: number;
+
+  ticketNo: string;
+  title: string;
+
+  priority: string;
+  status: string;
+
+  customerName: string;
+  softwareName: string;
+
+  assignedToName: string | null;
+
+  createdAt: string;
+  firstResponseAt: string | null;
+
+  slaPriority: string | null;
+
+  firstResponseTargetMinutes: number;
+  resolutionTargetMinutes: number;
+
+  responseDeadline: string;
+  resolutionDeadline: string;
+
+  responseOverdue: boolean;
+  resolutionOverdue: boolean;
+
+  responseOverdueMinutes: number;
+  resolutionOverdueMinutes: number;
+
+  maxOverdueMinutes: number;
+}
+
+interface TicketSlaWarningItem {
+  id: number;
+
+  ticketNo: string;
+  title: string;
+
+  priority: string;
+  status: string;
+
+  customerName: string;
+  softwareName: string;
+
+  assignedToName: string | null;
+
+  createdAt: string;
+  firstResponseAt: string | null;
+
+  slaPriority: string;
+
+  firstResponseTargetMinutes: number;
+  resolutionTargetMinutes: number;
+
+  warningBeforeMinutes: number;
+
+  responseDeadline: string;
+  resolutionDeadline: string;
+
+  responseWarning: boolean;
+  resolutionWarning: boolean;
+
+  responseRemainingMinutes: number | null;
+  resolutionRemainingMinutes: number | null;
+
+  minRemainingMinutes: number;
+}
+
+interface StaffTicketEfficiency {
+  userId: number;
+
+  username: string;
+
+  displayName: string;
+
+  role: string;
+
+  openTicketCount: number;
+
+  resolvedTicketCount: number;
+
+  averageResolutionMinutes: number | null;
+
+  resolutionSampleCount: number;
+}
 /**
  * 工单状态统计。
  */
@@ -128,7 +259,21 @@ function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   const [errorMessage, setErrorMessage] = useState("");
+  const [ticketEfficiency, setTicketEfficiency] =
+    useState<TicketEfficiencySummary | null>(null);
 
+  const [staffEfficiency, setStaffEfficiency] = useState<
+    StaffTicketEfficiency[]
+  >([]);
+
+  const [slaSummary, setSlaSummary] = useState<TicketSlaSummary | null>(null);
+
+  const [slaOverdueTickets, setSlaOverdueTickets] = useState<
+    TicketSlaOverdueItem[]
+  >([]);
+  const [slaWarningTickets, setSlaWarningTickets] = useState<
+    TicketSlaWarningItem[]
+  >([]);
   /**
    * ======================================
    * 加载 Dashboard 全部数据
@@ -156,6 +301,11 @@ function DashboardPage() {
         downloadTrendResponse,
         softwareDownloadRankingResponse,
         customerDownloadRankingResponse,
+        ticketEfficiencyResponse,
+        staffEfficiencyResponse,
+        slaSummaryResponse,
+        slaOverdueResponse,
+        slaWarningResponse,
       ] = await Promise.all([
         apiFetch("/api/dashboard/summary"),
 
@@ -176,6 +326,13 @@ function DashboardPage() {
         apiFetch("/api/dashboard/software-download-ranking"),
 
         apiFetch("/api/dashboard/customer-download-ranking"),
+        apiFetch("/api/dashboard/ticket-efficiency-summary"),
+
+        apiFetch("/api/dashboard/staff-ticket-efficiency"),
+        apiFetch("/api/dashboard/ticket-sla-summary"),
+
+        apiFetch("/api/dashboard/ticket-sla-overdue?take=10"),
+        apiFetch("/api/dashboard/ticket-sla-warning?take=10"),
       ]);
 
       if (!summaryResponse.ok) {
@@ -223,7 +380,27 @@ function DashboardPage() {
           `加载客户下载排行失败：${customerDownloadRankingResponse.status}`,
         );
       }
+      if (!ticketEfficiencyResponse.ok) {
+        throw new Error(
+          `加载工单效率统计失败：${ticketEfficiencyResponse.status}`,
+        );
+      }
 
+      if (!staffEfficiencyResponse.ok) {
+        throw new Error(
+          `加载人员处理效率失败：${staffEfficiencyResponse.status}`,
+        );
+      }
+      if (!slaSummaryResponse.ok) {
+        throw new Error(`加载 SLA 汇总失败：${slaSummaryResponse.status}`);
+      }
+      if (!slaWarningResponse.ok) {
+        throw new Error(`加载 SLA 预警工单失败：${slaWarningResponse.status}`);
+      }
+
+      if (!slaOverdueResponse.ok) {
+        throw new Error(`加载 SLA 超时工单失败：${slaOverdueResponse.status}`);
+      }
       const summaryData = (await summaryResponse.json()) as DashboardSummary;
 
       const statusData = (await statusResponse.json()) as TicketStatusItem[];
@@ -249,7 +426,19 @@ function DashboardPage() {
 
       const customerDownloadRankingData =
         (await customerDownloadRankingResponse.json()) as CustomerDownloadRanking[];
+      const ticketEfficiencyData =
+        (await ticketEfficiencyResponse.json()) as TicketEfficiencySummary;
 
+      const staffEfficiencyData =
+        (await staffEfficiencyResponse.json()) as StaffTicketEfficiency[];
+      const slaSummaryData =
+        (await slaSummaryResponse.json()) as TicketSlaSummary;
+
+      const slaOverdueData =
+        (await slaOverdueResponse.json()) as TicketSlaOverdueItem[];
+
+      const slaWarningData =
+        (await slaWarningResponse.json()) as TicketSlaWarningItem[];
       setSummary(summaryData);
 
       setTicketStatus(statusData);
@@ -268,6 +457,15 @@ function DashboardPage() {
       setSoftwareDownloadRanking(softwareDownloadRankingData);
 
       setCustomerDownloadRanking(customerDownloadRankingData);
+
+      setTicketEfficiency(ticketEfficiencyData);
+
+      setStaffEfficiency(staffEfficiencyData);
+      setSlaSummary(slaSummaryData);
+
+      setSlaOverdueTickets(slaOverdueData);
+
+      setSlaWarningTickets(slaWarningData);
     } catch (error) {
       console.error("加载 Dashboard 失败：", error);
 
@@ -281,6 +479,33 @@ function DashboardPage() {
     loadDashboard();
   }, []);
 
+  function formatRate(value: number | null) {
+    if (value === null) {
+      return "--";
+    }
+
+    return `${value.toFixed(1)}%`;
+  }
+
+  function formatDuration(minutes: number | null) {
+    if (minutes === null) {
+      return "--";
+    }
+
+    if (minutes < 60) {
+      return `${minutes.toFixed(1)} 分钟`;
+    }
+
+    const hours = minutes / 60;
+
+    if (hours < 24) {
+      return `${hours.toFixed(1)} 小时`;
+    }
+
+    const days = hours / 24;
+
+    return `${days.toFixed(1)} 天`;
+  }
   /**
    * 平均响应时间显示。
    */
@@ -887,7 +1112,108 @@ function DashboardPage() {
     }),
     [downloadTrend],
   );
+  const staffEfficiencyOption = useMemo(
+    () => ({
+      tooltip: {
+        trigger: "axis",
 
+        axisPointer: {
+          type: "shadow",
+        },
+      },
+
+      legend: {
+        top: 0,
+
+        data: ["已解决", "处理中"],
+
+        textStyle: {
+          color: "#64748b",
+        },
+      },
+
+      grid: {
+        left: 25,
+        right: 30,
+        top: 45,
+        bottom: 20,
+
+        containLabel: true,
+      },
+
+      xAxis: {
+        type: "value",
+
+        minInterval: 1,
+
+        axisLabel: {
+          color: "#94a3b8",
+        },
+
+        splitLine: {
+          lineStyle: {
+            color: "#f1f5f9",
+          },
+        },
+      },
+
+      yAxis: {
+        type: "category",
+
+        inverse: true,
+
+        data: staffEfficiency.map((item) => item.displayName || item.username),
+
+        axisTick: {
+          show: false,
+        },
+
+        axisLine: {
+          show: false,
+        },
+
+        axisLabel: {
+          color: "#475569",
+        },
+      },
+
+      series: [
+        {
+          name: "已解决",
+
+          type: "bar",
+
+          barWidth: 13,
+
+          data: staffEfficiency.map((item) => item.resolvedTicketCount),
+
+          itemStyle: {
+            color: "#22c55e",
+
+            borderRadius: [0, 5, 5, 0],
+          },
+        },
+
+        {
+          name: "处理中",
+
+          type: "bar",
+
+          barWidth: 13,
+
+          data: staffEfficiency.map((item) => item.openTicketCount),
+
+          itemStyle: {
+            color: "#3b82f6",
+
+            borderRadius: [0, 5, 5, 0],
+          },
+        },
+      ],
+    }),
+
+    [staffEfficiency],
+  );
   const softwareDownloadRankingOption = useMemo(
     () => ({
       tooltip: {
@@ -1345,6 +1671,562 @@ function DashboardPage() {
           )}
         </div>
       </div>
+      {/* =================================================
+    工单处理效率
+    ================================================= */}
+      <div className="dashboard-section-heading">
+        <div>
+          <div className="dashboard-section-title">工单处理效率</div>
+
+          <div className="dashboard-card-description">
+            响应速度、解决效率及人员当前工作量
+          </div>
+        </div>
+      </div>
+
+      {ticketEfficiency && (
+        <>
+          {/* =============================================
+        效率 KPI
+        ============================================= */}
+          <div className="dashboard-efficiency-grid">
+            <div className="dashboard-efficiency-card">
+              <div className="dashboard-efficiency-label">平均首次响应</div>
+
+              <div className="dashboard-efficiency-value">
+                {formatDuration(ticketEfficiency.averageFirstResponseMinutes)}
+              </div>
+
+              <div className="dashboard-efficiency-meta">
+                {ticketEfficiency.responseSampleCount} 条有效样本
+              </div>
+            </div>
+
+            <div className="dashboard-efficiency-card">
+              <div className="dashboard-efficiency-label">平均解决时长</div>
+
+              <div className="dashboard-efficiency-value">
+                {formatDuration(ticketEfficiency.averageResolutionMinutes)}
+              </div>
+
+              <div className="dashboard-efficiency-meta">
+                {ticketEfficiency.resolutionSampleCount} 条有效样本
+              </div>
+            </div>
+
+            <div className="dashboard-efficiency-card">
+              <div className="dashboard-efficiency-label">响应率</div>
+
+              <div className="dashboard-efficiency-value">
+                {ticketEfficiency.responseRate}%
+              </div>
+
+              <div className="dashboard-efficiency-meta">
+                {ticketEfficiency.respondedTickets} /{" "}
+                {ticketEfficiency.totalTickets} 个工单
+              </div>
+            </div>
+
+            <div className="dashboard-efficiency-card">
+              <div className="dashboard-efficiency-label">解决率</div>
+
+              <div className="dashboard-efficiency-value">
+                {ticketEfficiency.resolutionRate}%
+              </div>
+
+              <div className="dashboard-efficiency-meta">
+                {ticketEfficiency.resolvedTickets} /{" "}
+                {ticketEfficiency.totalTickets} 个工单
+              </div>
+            </div>
+          </div>
+
+          {/* =============================================
+        人员效率
+        ============================================= */}
+          <div className="dashboard-efficiency-content">
+            {/* 左侧图表 */}
+            <div className="dashboard-chart-card">
+              <div className="dashboard-card-header">
+                <div>
+                  <div className="dashboard-card-title">人员处理情况</div>
+
+                  <div className="dashboard-card-description">
+                    当前处理中与已解决工单数量
+                  </div>
+                </div>
+              </div>
+
+              {staffEfficiency.length === 0 ? (
+                <div className="dashboard-empty">暂无人员处理数据</div>
+              ) : (
+                <ReactECharts
+                  option={staffEfficiencyOption}
+                  style={{
+                    height: "330px",
+                    width: "100%",
+                  }}
+                />
+              )}
+            </div>
+
+            {/* 右侧人员表格 */}
+            <div className="dashboard-chart-card">
+              <div className="dashboard-card-header">
+                <div>
+                  <div className="dashboard-card-title">处理效率排行</div>
+
+                  <div className="dashboard-card-description">
+                    按当前有效已解决工单数量排序
+                  </div>
+                </div>
+              </div>
+
+              <div className="dashboard-staff-table-wrapper">
+                <table className="dashboard-staff-table">
+                  <thead>
+                    <tr>
+                      <th>人员</th>
+
+                      <th>角色</th>
+
+                      <th>处理中</th>
+
+                      <th>已解决</th>
+
+                      <th>平均解决</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {staffEfficiency.map((staff) => (
+                      <tr key={staff.userId}>
+                        <td>
+                          <div className="dashboard-staff-name">
+                            {staff.displayName || staff.username}
+                          </div>
+
+                          <div className="dashboard-staff-username">
+                            {staff.username}
+                          </div>
+                        </td>
+
+                        <td>
+                          <span
+                            className={
+                              "dashboard-role-badge " +
+                              (staff.role === "Support"
+                                ? "dashboard-role-support"
+                                : "dashboard-role-developer")
+                            }
+                          >
+                            {staff.role === "Support" ? "售后" : "开发"}
+                          </span>
+                        </td>
+
+                        <td>{staff.openTicketCount}</td>
+
+                        <td>
+                          <strong>{staff.resolvedTicketCount}</strong>
+                        </td>
+
+                        <td>
+                          {formatDuration(staff.averageResolutionMinutes)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* =================================================
+    SLA 服务质量
+    ================================================= */}
+      <div className="dashboard-section-heading">
+        <div>
+          <div className="dashboard-section-title">SLA 服务质量</div>
+
+          <div className="dashboard-card-description">
+            根据工单创建时保存的 SLA 规则快照进行统计
+          </div>
+        </div>
+      </div>
+
+      {slaSummary && (
+        <>
+          {/* =============================================
+        SLA KPI
+        ============================================= */}
+          <div className="dashboard-sla-grid">
+            {/* 首次响应达标率 */}
+            <div className="dashboard-sla-card">
+              <div className="dashboard-sla-icon dashboard-sla-icon-success">
+                <ShieldCheck size={22} />
+              </div>
+
+              <div>
+                <div className="dashboard-sla-label">首次响应 SLA</div>
+
+                <div className="dashboard-sla-value">
+                  {formatRate(slaSummary.responseComplianceRate)}
+                </div>
+
+                <div className="dashboard-sla-meta">
+                  {slaSummary.responseMetCount}
+                  {" / "}
+                  {slaSummary.responseEvaluatedCount}
+                  {" 达标"}
+                </div>
+              </div>
+            </div>
+
+            {/* 解决达标率 */}
+            <div className="dashboard-sla-card">
+              <div className="dashboard-sla-icon dashboard-sla-icon-success">
+                <ShieldCheck size={22} />
+              </div>
+
+              <div>
+                <div className="dashboard-sla-label">解决 SLA</div>
+
+                <div className="dashboard-sla-value">
+                  {formatRate(slaSummary.resolutionComplianceRate)}
+                </div>
+
+                <div className="dashboard-sla-meta">
+                  {slaSummary.resolutionMetCount}
+                  {" / "}
+                  {slaSummary.resolutionEvaluatedCount}
+                  {" 达标"}
+                </div>
+              </div>
+            </div>
+
+            {/* 当前响应超时 */}
+            <div
+              className={
+                "dashboard-sla-card " +
+                (slaSummary.currentResponseOverdueCount > 0
+                  ? "dashboard-sla-card-danger"
+                  : "")
+              }
+            >
+              <div className="dashboard-sla-icon dashboard-sla-icon-danger">
+                <TimerOff size={22} />
+              </div>
+
+              <div>
+                <div className="dashboard-sla-label">当前响应超时</div>
+
+                <div className="dashboard-sla-value">
+                  {slaSummary.currentResponseOverdueCount}
+                </div>
+
+                <div className="dashboard-sla-meta">尚未首次响应</div>
+              </div>
+            </div>
+
+            {/* 当前解决超时 */}
+            <div
+              className={
+                "dashboard-sla-card " +
+                (slaSummary.currentResolutionOverdueCount > 0
+                  ? "dashboard-sla-card-danger"
+                  : "")
+              }
+            >
+              <div className="dashboard-sla-icon dashboard-sla-icon-danger">
+                <ShieldAlert size={22} />
+              </div>
+
+              <div>
+                <div className="dashboard-sla-label">当前解决超时</div>
+
+                <div className="dashboard-sla-value">
+                  {slaSummary.currentResolutionOverdueCount}
+                </div>
+
+                <div className="dashboard-sla-meta">尚未解决</div>
+              </div>
+            </div>
+          </div>
+
+          {/* =============================================
+        没有 SLA 数据时的提示
+        ============================================= */}
+          {slaSummary.slaTicketCount === 0 && (
+            <div className="dashboard-sla-no-data">
+              当前还没有使用 SLA 规则创建的新工单。 SLA
+              配置不会追溯修改历史工单， 新建工单后这里会开始产生统计数据。
+            </div>
+          )}
+          {/* =============================================
+    SLA 即将超时
+    ============================================= */}
+          <div className="dashboard-sla-warning-card">
+            <div className="dashboard-card-header">
+              <div>
+                <div className="dashboard-card-title">
+                  <TriangleAlert size={18} />
+                  SLA 即将超时
+                </div>
+
+                <div className="dashboard-card-description">
+                  已进入 SLA 预警窗口，但尚未真正超时
+                </div>
+              </div>
+
+              {slaWarningTickets.length > 0 && (
+                <div className="dashboard-sla-warning-count">
+                  {slaWarningTickets.length} 个预警工单
+                </div>
+              )}
+            </div>
+
+            {slaWarningTickets.length === 0 ? (
+              <div className="dashboard-sla-warning-empty">
+                当前没有即将超时的工单
+              </div>
+            ) : (
+              <div className="dashboard-sla-table-wrapper">
+                <table className="dashboard-sla-table">
+                  <thead>
+                    <tr>
+                      <th>工单</th>
+
+                      <th>优先级</th>
+
+                      <th>客户 / 软件</th>
+
+                      <th>负责人</th>
+
+                      <th>预警类型</th>
+
+                      <th>剩余时间</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {slaWarningTickets.map((ticket) => {
+                      /*
+                       * 同时存在两种预警时，
+                       * 展示离截止时间最近的一种。
+                       */
+                      const remainingMinutes = ticket.resolutionWarning
+                        ? ticket.resolutionRemainingMinutes
+                        : ticket.responseRemainingMinutes;
+
+                      return (
+                        <tr key={ticket.id}>
+                          <td>
+                            <div className="dashboard-sla-ticket-no">
+                              {ticket.ticketNo}
+                            </div>
+
+                            <div
+                              className="dashboard-sla-ticket-title"
+                              title={ticket.title}
+                            >
+                              {ticket.title}
+                            </div>
+                          </td>
+
+                          <td>
+                            <span
+                              className={
+                                "dashboard-sla-priority " +
+                                `dashboard-sla-priority-${ticket.priority.toLowerCase()}`
+                              }
+                            >
+                              {getPriorityName(ticket.priority)}
+                            </span>
+                          </td>
+
+                          <td>
+                            <div className="dashboard-sla-main-text">
+                              {ticket.customerName}
+                            </div>
+
+                            <div className="dashboard-sla-secondary-text">
+                              {ticket.softwareName}
+                            </div>
+                          </td>
+
+                          <td>{ticket.assignedToName || "未分配"}</td>
+
+                          <td>
+                            <div className="dashboard-sla-warning-tags">
+                              {ticket.responseWarning && (
+                                <span className="dashboard-sla-warning-tag">
+                                  响应预警
+                                </span>
+                              )}
+
+                              {ticket.resolutionWarning && (
+                                <span className="dashboard-sla-warning-tag">
+                                  解决预警
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          <td>
+                            <strong className="dashboard-sla-remaining-time">
+                              剩余 {  formatDuration(
+      ticket.minRemainingMinutes,
+    )}
+                            </strong>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+          {/* =============================================
+        当前超时工单
+        ============================================= */}
+          <div className="dashboard-sla-overdue-card">
+            <div className="dashboard-card-header">
+              <div>
+                <div className="dashboard-card-title">
+                  <TriangleAlert size={18} />
+                  SLA 超时工单
+                </div>
+
+                <div className="dashboard-card-description">
+                  当前仍处于待处理或处理中的超时工单
+                </div>
+              </div>
+
+              {slaOverdueTickets.length > 0 && (
+                <div className="dashboard-sla-overdue-count">
+                  {slaOverdueTickets.length} 个风险工单
+                </div>
+              )}
+            </div>
+
+            {slaOverdueTickets.length === 0 ? (
+              <div className="dashboard-sla-safe">
+                <ShieldCheck size={24} />
+
+                <div>
+                  <div className="dashboard-sla-safe-title">
+                    当前没有 SLA 超时工单
+                  </div>
+
+                  <div className="dashboard-sla-safe-description">
+                    当前需要处理的工单均未超过 SLA 截止时间
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="dashboard-sla-table-wrapper">
+                <table className="dashboard-sla-table">
+                  <thead>
+                    <tr>
+                      <th>工单</th>
+
+                      <th>优先级</th>
+
+                      <th>客户 / 软件</th>
+
+                      <th>负责人</th>
+
+                      <th>超时类型</th>
+
+                      <th>超时时长</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {slaOverdueTickets.map((ticket) => {
+                      /*
+                       * 如果解决已经超时，
+                       * 优先展示解决超时。
+                       *
+                       * 因为解决 SLA
+                       * 一般属于更严重的整体超时。
+                       */
+                      const overdueMinutes = ticket.resolutionOverdue
+                        ? ticket.resolutionOverdueMinutes
+                        : ticket.responseOverdueMinutes;
+
+                      return (
+                        <tr key={ticket.id}>
+                          <td>
+                            <div className="dashboard-sla-ticket-no">
+                              {ticket.ticketNo}
+                            </div>
+
+                            <div
+                              className="dashboard-sla-ticket-title"
+                              title={ticket.title}
+                            >
+                              {ticket.title}
+                            </div>
+                          </td>
+
+                          <td>
+                            <span
+                              className={
+                                "dashboard-sla-priority " +
+                                `dashboard-sla-priority-${ticket.priority.toLowerCase()}`
+                              }
+                            >
+                              {getPriorityName(ticket.priority)}
+                            </span>
+                          </td>
+
+                          <td>
+                            <div className="dashboard-sla-main-text">
+                              {ticket.customerName}
+                            </div>
+
+                            <div className="dashboard-sla-secondary-text">
+                              {ticket.softwareName}
+                            </div>
+                          </td>
+
+                          <td>{ticket.assignedToName || "未分配"}</td>
+
+                          <td>
+                            <div className="dashboard-sla-breach-tags">
+                              {ticket.responseOverdue && (
+                                <span className="dashboard-sla-breach-tag">
+                                  响应超时
+                                </span>
+                              )}
+
+                              {ticket.resolutionOverdue && (
+                                <span className="dashboard-sla-breach-tag">
+                                  解决超时
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          <td>
+                            <strong className="dashboard-sla-overdue-time">
+                              已超时 {formatDuration(overdueMinutes)}
+                            </strong>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
 
       {/* =================================================
     下载统计

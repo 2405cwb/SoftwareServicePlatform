@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SoftwareServicePlatform.Api.Data;
@@ -11,9 +12,11 @@ using SoftwareServicePlatform.Api.Data;
 namespace SoftwareServicePlatform.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260914080545_AddTicketSlaRules")]
+    partial class AddTicketSlaRules
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -428,19 +431,6 @@ namespace SoftwareServicePlatform.Api.Migrations
                     b.Property<DateTime?>("ResolvedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<DateTime?>("SlaAppliedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int?>("SlaFirstResponseTargetMinutes")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("SlaPriority")
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)");
-
-                    b.Property<int?>("SlaResolutionTargetMinutes")
-                        .HasColumnType("integer");
-
                     b.Property<int>("SoftwareId")
                         .HasColumnType("integer");
 
@@ -599,9 +589,6 @@ namespace SoftwareServicePlatform.Api.Migrations
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("WarningBeforeMinutes")
-                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 

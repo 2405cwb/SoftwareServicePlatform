@@ -347,7 +347,29 @@ namespace SoftwareServicePlatform.Api.Controllers
             var now =
                 DateTime.UtcNow;
 
+            /*
+ * ==========================================
+ * 查询当前优先级生效的 SLA 规则
+ * ==========================================
+ *
+ * 注意：
+ *
+ * 这里只在“创建工单”这一刻读取一次。
+ *
+ * 后面 SLA 规则即使修改，
+ * 也不会影响这张历史工单。
+ */
+            var slaRule =
+                await _dbContext.TicketSlaRules
 
+                    .AsNoTracking()
+
+                    .FirstOrDefaultAsync(
+                        x =>
+                            x.Priority == request.Priority
+                            &&
+                            x.IsEnabled
+                    );
             /*
              * ==========================================
              * 12. 创建 Ticket
@@ -392,7 +414,29 @@ namespace SoftwareServicePlatform.Api.Controllers
                     Priority =
                         request.Priority,
 
+                    /*
+ * ==========================================
+ * SLA 快照
+ * ==========================================
+ */
+                    SlaPriority =
+    slaRule == null
+        ? null
+        : request.Priority,
 
+
+                    SlaFirstResponseTargetMinutes =
+    slaRule?.FirstResponseTargetMinutes,
+
+
+                    SlaResolutionTargetMinutes =
+    slaRule?.ResolutionTargetMinutes,
+
+
+                    SlaAppliedAt =
+    slaRule == null
+        ? null
+        : now,
                     /*
                     * 当前 CreateTicket 接口
                     * 只能由 Customer 在客户门户提交，
@@ -539,6 +583,14 @@ namespace SoftwareServicePlatform.Api.Controllers
                     ticket.Status,
 
                     ticket.Priority,
+
+                    ticket.SlaPriority,
+
+                    ticket.SlaFirstResponseTargetMinutes,
+
+                    ticket.SlaResolutionTargetMinutes,
+
+                    ticket.SlaAppliedAt,
 
                     ticket.CustomerId,
 
@@ -1015,34 +1067,34 @@ namespace SoftwareServicePlatform.Api.Controllers
  *
  * 不能修改其他开发人员的工单。
  */
-var currentUser =
-    await _dbContext.Users
-        .AsNoTracking()
-        .FirstOrDefaultAsync(
-            x =>
-                x.Id == currentUserId
-                &&
-                x.IsEnabled
-        );
+            var currentUser =
+                await _dbContext.Users
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        x =>
+                            x.Id == currentUserId
+                            &&
+                            x.IsEnabled
+                    );
 
 
-if (currentUser == null)
-{
-    return Unauthorized(
-        "当前用户不存在或已停用"
-    );
-}
+            if (currentUser == null)
+            {
+                return Unauthorized(
+                    "当前用户不存在或已停用"
+                );
+            }
 
 
-if (currentUser.Role == "Developer")
-{
-    if (ticket.AssignedToUserId
-        !=
-        currentUser.Id)
-    {
-        return Forbid();
-    }
-}
+            if (currentUser.Role == "Developer")
+            {
+                if (ticket.AssignedToUserId
+                    !=
+                    currentUser.Id)
+                {
+                    return Forbid();
+                }
+            }
 
             /*
              * ==========================================
