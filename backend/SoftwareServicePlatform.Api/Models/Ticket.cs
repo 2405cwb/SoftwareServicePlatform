@@ -107,7 +107,42 @@
         /// </summary>
         public string Source { get; set; } = "Portal";
 
+        /// <summary>
+        /// 工单创建时使用的 SLA 优先级快照。
+        ///
+        /// 为什么不能以后直接使用 Priority？
+        ///
+        /// 因为 Priority 后续可能被修改，
+        /// SLA 历史统计必须保留工单创建时的规则。
+        /// </summary>
+        public string? SlaPriority { get; set; }
 
+
+        /// <summary>
+        /// 工单创建时的首次响应 SLA 目标。
+        ///
+        /// 单位：分钟。
+        ///
+        /// null：
+        /// 创建工单时该优先级没有启用 SLA。
+        /// </summary>
+        public int? SlaFirstResponseTargetMinutes { get; set; }
+
+
+        /// <summary>
+        /// 工单创建时的解决 SLA 目标。
+        ///
+        /// 单位：分钟。
+        /// </summary>
+        public int? SlaResolutionTargetMinutes { get; set; }
+
+
+        /// <summary>
+        /// SLA 规则应用时间。
+        ///
+        /// 用于确认这张工单什么时候取得 SLA 快照。
+        /// </summary>
+        public DateTime? SlaAppliedAt { get; set; }
 
         // =====================================================
         // 客户

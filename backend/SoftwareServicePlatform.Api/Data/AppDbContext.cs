@@ -386,6 +386,39 @@ namespace SoftwareServicePlatform.Api.Data
                 .WithMany()
                 .HasForeignKey(x => x.SoftwareVersionId)
                 .OnDelete(DeleteBehavior.SetNull);
+
+
+            /*
+ * ==========================================
+ * TicketSlaRule
+ * 工单 SLA 规则
+ * ==========================================
+ */
+
+
+            /*
+             * Priority 最长30字符。
+             */
+            modelBuilder.Entity<TicketSlaRule>()
+                .Property(x => x.Priority)
+                .HasMaxLength(30);
+
+
+            /*
+             * 同一种工单优先级只能存在一条 SLA 规则。
+             *
+             * 例如数据库中不能同时出现两条：
+             *
+             * Normal
+             * Normal
+             */
+            modelBuilder.Entity<TicketSlaRule>()
+                .HasIndex(x => x.Priority)
+                .IsUnique();
+
+            modelBuilder.Entity<Ticket>()
+    .Property(x => x.SlaPriority)
+    .HasMaxLength(30);
         }
         public DbSet<Models.Customer> Customers { get; set; } = null!;
         public DbSet<Software> Softwares { get; set; }
@@ -426,5 +459,10 @@ namespace SoftwareServicePlatform.Api.Data
         /// 软件安装包下载历史。
         /// </summary>
         public DbSet<DownloadRecord> DownloadRecords { get; set; }
+
+        /// <summary>
+        /// 工单 SLA 配置规则。
+        /// </summary>
+        public DbSet<TicketSlaRule> TicketSlaRules { get; set; }
     }
 }

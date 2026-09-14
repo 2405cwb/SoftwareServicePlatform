@@ -10,6 +10,7 @@ import {
   UserCog,
   PackageOpen,
   Download,
+  SlidersHorizontal,
 } from "lucide-react";
 /*
  * 当前登录用户的数据结构。
@@ -265,7 +266,13 @@ function MainLayout() {
               <span>用户管理</span>
             </NavLink>
           )}
+          {hasRole("Admin") && (
+            <NavLink to="/sla-settings" className="sidebar-menu-item">
+              <SlidersHorizontal size={18} />
 
+              <span>SLA 设置</span>
+            </NavLink>
+          )}
           {hasRole("Customer") && (
             <NavLink to="/my-software" className="sidebar-menu-item">
               <PackageOpen size={18} />
