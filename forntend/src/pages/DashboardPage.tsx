@@ -1,72 +1,85 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import ReactECharts from "echarts-for-react";
-
 import {
-  Users,
-  Package,
-  Tickets,
-  CircleAlert,
-  CalendarDays,
+  AlertTriangle,
+  Boxes,
+  Building2,
+  CheckCircle2,
   Clock3,
-  RefreshCw,
-  TrendingUp,
-  ChartPie,
   Download,
   FileDown,
-  ShieldCheck,
+  Headphones,
+  RefreshCw,
   ShieldAlert,
-  TriangleAlert,
-  TimerOff,
+  TicketCheck,
+  Tickets,
+  UserRoundCheck,
+  Users,
+  Wrench,
 } from "lucide-react";
-
 import { apiFetch } from "../services/api";
+import { getSessionUser } from "../utils/session";
+import { formatDuration } from "../utils/format";
+import KpiCard from "../components/dashboard/KpiCard";
+import DashboardTicketList, {
+  type DashboardTicket,
+} from "../components/dashboard/DashboardTicketList";
 
-/**
- * Dashboard 顶部汇总数据。
- */
-interface DashboardSummary {
+interface WorkOverview {
+  role: string;
+  userId: number;
+  displayName: string;
+  customerName: string | null;
+  myOpenCount: number;
+  myUrgentCount: number;
+  myResolvedThisMonth: number;
+  unassignedCount: number;
+  customerSoftwareCount: number;
+  salesCustomerCount: number;
+  salesSoftwareCount: number;
+  recentTickets: DashboardTicket[];
+  attentionTickets: DashboardTicket[];
+}
+
+interface GlobalSummary {
   activeCustomers: number;
   activeSoftwares: number;
   totalTickets: number;
   openTickets: number;
   thisMonthTickets: number;
   averageFirstResponseMinutes: number | null;
-  generatedAtUtc: string;
 }
-interface TicketEfficiencySummary {
+
+interface TicketTrendItem {
+  date: string;
+  count: number;
+}
+
+interface TicketStatusItem {
+  status: string;
+  name: string;
+  count: number;
+}
+
+interface EfficiencySummary {
   totalTickets: number;
-
   openTickets: number;
-
   respondedTickets: number;
-
   resolvedTickets: number;
-
   responseRate: number;
-
   resolutionRate: number;
-
   averageFirstResponseMinutes: number | null;
-
   averageResolutionMinutes: number | null;
-
-  averageCloseMinutes: number | null;
-
-  responseSampleCount: number;
-
-  resolutionSampleCount: number;
-
-  closeSampleCount: number;
 }
-interface TicketSlaSummary {
-  slaTicketCount: number;
 
+interface SlaSummary {
+  slaTicketCount: number;
   responseEvaluatedCount: number;
   responseMetCount: number;
   responseBreachedCount: number;
   currentResponseOverdueCount: number;
   responseComplianceRate: number | null;
-
   resolutionEvaluatedCount: number;
   resolutionMetCount: number;
   resolutionBreachedCount: number;
@@ -74,1346 +87,170 @@ interface TicketSlaSummary {
   resolutionComplianceRate: number | null;
 }
 
-interface TicketSlaOverdueItem {
-  id: number;
-
-  ticketNo: string;
-  title: string;
-
-  priority: string;
-  status: string;
-
-  customerName: string;
-  softwareName: string;
-
-  assignedToName: string | null;
-
-  createdAt: string;
-  firstResponseAt: string | null;
-
-  slaPriority: string | null;
-
-  firstResponseTargetMinutes: number;
-  resolutionTargetMinutes: number;
-
-  responseDeadline: string;
-  resolutionDeadline: string;
-
-  responseOverdue: boolean;
-  resolutionOverdue: boolean;
-
-  responseOverdueMinutes: number;
-  resolutionOverdueMinutes: number;
-
-  maxOverdueMinutes: number;
-}
-
-interface TicketSlaWarningItem {
-  id: number;
-
-  ticketNo: string;
-  title: string;
-
-  priority: string;
-  status: string;
-
-  customerName: string;
-  softwareName: string;
-
-  assignedToName: string | null;
-
-  createdAt: string;
-  firstResponseAt: string | null;
-
-  slaPriority: string;
-
-  firstResponseTargetMinutes: number;
-  resolutionTargetMinutes: number;
-
-  warningBeforeMinutes: number;
-
-  responseDeadline: string;
-  resolutionDeadline: string;
-
-  responseWarning: boolean;
-  resolutionWarning: boolean;
-
-  responseRemainingMinutes: number | null;
-  resolutionRemainingMinutes: number | null;
-
-  minRemainingMinutes: number;
-}
-
-interface StaffTicketEfficiency {
-  userId: number;
-
-  username: string;
-
-  displayName: string;
-
-  role: string;
-
-  openTicketCount: number;
-
-  resolvedTicketCount: number;
-
-  averageResolutionMinutes: number | null;
-
-  resolutionSampleCount: number;
-}
-/**
- * 工单状态统计。
- */
-interface TicketStatusItem {
-  status: string;
-  name: string;
-  count: number;
-}
-
-/**
- * 最近30天工单趋势。
- */
-interface TicketTrendItem {
-  date: string;
-  count: number;
-}
-interface SoftwareTicketRanking {
-  softwareId: number;
-  softwareName: string;
-  ticketCount: number;
-}
-
-interface CustomerTicketRanking {
-  customerId: number;
-  customerName: string;
-  ticketCount: number;
-}
-
-interface RecentTicket {
-  id: number;
-  ticketNo: string;
-  title: string;
-  status: string;
-  priority: string;
-  source: string;
-
-  customerName: string;
-  softwareName: string;
-
-  assignedToName: string | null;
-
-  createdAt: string;
-  updatedAt: string;
-}
 interface DownloadSummary {
   totalDownloads: number;
   thisMonthDownloads: number;
 }
 
-interface DownloadTrendItem {
-  date: string;
-  count: number;
+interface RankingItem {
+  softwareId?: number | null;
+  softwareName?: string;
+  customerId?: number | null;
+  customerName?: string;
+  ticketCount?: number;
 }
 
-interface SoftwareDownloadRanking {
-  softwareId: number | null;
-  softwareName: string;
-  downloadCount: number;
-}
-
-interface CustomerDownloadRanking {
-  customerId: number | null;
-  customerName: string;
-  downloadCount: number;
-}
 function DashboardPage() {
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const navigate = useNavigate();
+  const currentUser = getSessionUser();
+  const role = currentUser?.role ?? "";
 
-  const [ticketStatus, setTicketStatus] = useState<TicketStatusItem[]>([]);
-
-  const [ticketTrend, setTicketTrend] = useState<TicketTrendItem[]>([]);
-
-  const [softwareRanking, setSoftwareRanking] = useState<
-    SoftwareTicketRanking[]
-  >([]);
-
-  const [customerRanking, setCustomerRanking] = useState<
-    CustomerTicketRanking[]
-  >([]);
-
-  const [recentTickets, setRecentTickets] = useState<RecentTicket[]>([]);
-  const [downloadSummary, setDownloadSummary] = useState<DownloadSummary>({
-    totalDownloads: 0,
-    thisMonthDownloads: 0,
-  });
-
-  const [downloadTrend, setDownloadTrend] = useState<DownloadTrendItem[]>([]);
-
-  const [softwareDownloadRanking, setSoftwareDownloadRanking] = useState<
-    SoftwareDownloadRanking[]
-  >([]);
-
-  const [customerDownloadRanking, setCustomerDownloadRanking] = useState<
-    CustomerDownloadRanking[]
-  >([]);
+  const [overview, setOverview] = useState<WorkOverview | null>(null);
+  const [summary, setSummary] = useState<GlobalSummary | null>(null);
+  const [trend, setTrend] = useState<TicketTrendItem[]>([]);
+  const [status, setStatus] = useState<TicketStatusItem[]>([]);
+  const [efficiency, setEfficiency] = useState<EfficiencySummary | null>(null);
+  const [sla, setSla] = useState<SlaSummary | null>(null);
+  const [downloads, setDownloads] = useState<DownloadSummary | null>(null);
+  const [softwareRanking, setSoftwareRanking] = useState<RankingItem[]>([]);
+  const [customerRanking, setCustomerRanking] = useState<RankingItem[]>([]);
+  const [globalWarningTickets, setGlobalWarningTickets] = useState<DashboardTicket[]>([]);
+  const [globalOverdueTickets, setGlobalOverdueTickets] = useState<DashboardTicket[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const [errorMessage, setErrorMessage] = useState("");
-  const [ticketEfficiency, setTicketEfficiency] =
-    useState<TicketEfficiencySummary | null>(null);
+  const isManagement = role === "Admin" || role === "Support";
 
-  const [staffEfficiency, setStaffEfficiency] = useState<
-    StaffTicketEfficiency[]
-  >([]);
-
-  const [slaSummary, setSlaSummary] = useState<TicketSlaSummary | null>(null);
-
-  const [slaOverdueTickets, setSlaOverdueTickets] = useState<
-    TicketSlaOverdueItem[]
-  >([]);
-  const [slaWarningTickets, setSlaWarningTickets] = useState<
-    TicketSlaWarningItem[]
-  >([]);
-  /**
-   * ======================================
-   * 加载 Dashboard 全部数据
-   * ======================================
-   */
-  async function loadDashboard() {
+  async function load() {
     try {
       setLoading(true);
+      setError("");
 
-      setErrorMessage("");
+      const overviewResponse = await apiFetch("/api/work-dashboard/overview");
+      if (!overviewResponse.ok) {
+        throw new Error(`加载工作台失败：${overviewResponse.status}`);
+      }
+      setOverview((await overviewResponse.json()) as WorkOverview);
 
-      /*
-       * 三个接口互相没有依赖，
-       * 所以并发请求。
-       */
-      const [
-        summaryResponse,
-        statusResponse,
-        trendResponse,
-        softwareRankingResponse,
-        customerRankingResponse,
-        recentTicketsResponse,
+      if (!isManagement) {
+        return;
+      }
 
-        downloadSummaryResponse,
-        downloadTrendResponse,
-        softwareDownloadRankingResponse,
-        customerDownloadRankingResponse,
-        ticketEfficiencyResponse,
-        staffEfficiencyResponse,
-        slaSummaryResponse,
-        slaOverdueResponse,
-        slaWarningResponse,
-      ] = await Promise.all([
+      const responses = await Promise.all([
         apiFetch("/api/dashboard/summary"),
-
-        apiFetch("/api/dashboard/ticket-status"),
-
         apiFetch("/api/dashboard/ticket-trend"),
-
-        apiFetch("/api/dashboard/software-ticket-ranking"),
-
-        apiFetch("/api/dashboard/customer-ticket-ranking"),
-
-        apiFetch("/api/dashboard/recent-tickets"),
-
-        apiFetch("/api/dashboard/download-summary"),
-
-        apiFetch("/api/dashboard/download-trend"),
-
-        apiFetch("/api/dashboard/software-download-ranking"),
-
-        apiFetch("/api/dashboard/customer-download-ranking"),
+        apiFetch("/api/dashboard/ticket-status"),
         apiFetch("/api/dashboard/ticket-efficiency-summary"),
-
-        apiFetch("/api/dashboard/staff-ticket-efficiency"),
         apiFetch("/api/dashboard/ticket-sla-summary"),
-
-        apiFetch("/api/dashboard/ticket-sla-overdue?take=10"),
-        apiFetch("/api/dashboard/ticket-sla-warning?take=10"),
+        apiFetch("/api/dashboard/download-summary"),
+        apiFetch("/api/dashboard/software-ticket-ranking"),
+        apiFetch("/api/dashboard/customer-ticket-ranking"),
+        apiFetch("/api/dashboard/ticket-sla-warning?take=6"),
+        apiFetch("/api/dashboard/ticket-sla-overdue?take=6"),
       ]);
 
-      if (!summaryResponse.ok) {
-        throw new Error(`加载概览失败：${summaryResponse.status}`);
+      const failed = responses.find((response) => !response.ok);
+      if (failed) {
+        throw new Error(`加载管理统计失败：${failed.status}`);
       }
 
-      if (!statusResponse.ok) {
-        throw new Error(`加载工单状态失败：${statusResponse.status}`);
-      }
+      const [
+        summaryData,
+        trendData,
+        statusData,
+        efficiencyData,
+        slaData,
+        downloadData,
+        softwareData,
+        customerData,
+        warningData,
+        overdueData,
+      ] = await Promise.all(responses.map((response) => response.json()));
 
-      if (!trendResponse.ok) {
-        throw new Error(`加载工单趋势失败：${trendResponse.status}`);
-      }
-      if (!softwareRankingResponse.ok) {
-        throw new Error(
-          `加载软件问题排行失败：${softwareRankingResponse.status}`,
-        );
-      }
-
-      if (!customerRankingResponse.ok) {
-        throw new Error(
-          `加载客户问题排行失败：${customerRankingResponse.status}`,
-        );
-      }
-
-      if (!recentTicketsResponse.ok) {
-        throw new Error(`加载最近工单失败：${recentTicketsResponse.status}`);
-      }
-      if (!downloadSummaryResponse.ok) {
-        throw new Error(`加载下载汇总失败：${downloadSummaryResponse.status}`);
-      }
-
-      if (!downloadTrendResponse.ok) {
-        throw new Error(`加载下载趋势失败：${downloadTrendResponse.status}`);
-      }
-
-      if (!softwareDownloadRankingResponse.ok) {
-        throw new Error(
-          `加载软件下载排行失败：${softwareDownloadRankingResponse.status}`,
-        );
-      }
-
-      if (!customerDownloadRankingResponse.ok) {
-        throw new Error(
-          `加载客户下载排行失败：${customerDownloadRankingResponse.status}`,
-        );
-      }
-      if (!ticketEfficiencyResponse.ok) {
-        throw new Error(
-          `加载工单效率统计失败：${ticketEfficiencyResponse.status}`,
-        );
-      }
-
-      if (!staffEfficiencyResponse.ok) {
-        throw new Error(
-          `加载人员处理效率失败：${staffEfficiencyResponse.status}`,
-        );
-      }
-      if (!slaSummaryResponse.ok) {
-        throw new Error(`加载 SLA 汇总失败：${slaSummaryResponse.status}`);
-      }
-      if (!slaWarningResponse.ok) {
-        throw new Error(`加载 SLA 预警工单失败：${slaWarningResponse.status}`);
-      }
-
-      if (!slaOverdueResponse.ok) {
-        throw new Error(`加载 SLA 超时工单失败：${slaOverdueResponse.status}`);
-      }
-      const summaryData = (await summaryResponse.json()) as DashboardSummary;
-
-      const statusData = (await statusResponse.json()) as TicketStatusItem[];
-
-      const trendData = (await trendResponse.json()) as TicketTrendItem[];
-
-      const softwareRankingData =
-        (await softwareRankingResponse.json()) as SoftwareTicketRanking[];
-
-      const customerRankingData =
-        (await customerRankingResponse.json()) as CustomerTicketRanking[];
-
-      const recentTicketsData =
-        (await recentTicketsResponse.json()) as RecentTicket[];
-      const downloadSummaryData =
-        (await downloadSummaryResponse.json()) as DownloadSummary;
-
-      const downloadTrendData =
-        (await downloadTrendResponse.json()) as DownloadTrendItem[];
-
-      const softwareDownloadRankingData =
-        (await softwareDownloadRankingResponse.json()) as SoftwareDownloadRanking[];
-
-      const customerDownloadRankingData =
-        (await customerDownloadRankingResponse.json()) as CustomerDownloadRanking[];
-      const ticketEfficiencyData =
-        (await ticketEfficiencyResponse.json()) as TicketEfficiencySummary;
-
-      const staffEfficiencyData =
-        (await staffEfficiencyResponse.json()) as StaffTicketEfficiency[];
-      const slaSummaryData =
-        (await slaSummaryResponse.json()) as TicketSlaSummary;
-
-      const slaOverdueData =
-        (await slaOverdueResponse.json()) as TicketSlaOverdueItem[];
-
-      const slaWarningData =
-        (await slaWarningResponse.json()) as TicketSlaWarningItem[];
-      setSummary(summaryData);
-
-      setTicketStatus(statusData);
-
-      setTicketTrend(trendData);
-      setSoftwareRanking(softwareRankingData);
-
-      setCustomerRanking(customerRankingData);
-
-      setRecentTickets(recentTicketsData);
-
-      setDownloadSummary(downloadSummaryData);
-
-      setDownloadTrend(downloadTrendData);
-
-      setSoftwareDownloadRanking(softwareDownloadRankingData);
-
-      setCustomerDownloadRanking(customerDownloadRankingData);
-
-      setTicketEfficiency(ticketEfficiencyData);
-
-      setStaffEfficiency(staffEfficiencyData);
-      setSlaSummary(slaSummaryData);
-
-      setSlaOverdueTickets(slaOverdueData);
-
-      setSlaWarningTickets(slaWarningData);
-    } catch (error) {
-      console.error("加载 Dashboard 失败：", error);
-
-      setErrorMessage("Dashboard 数据加载失败，请稍后重试。");
+      setSummary(summaryData as GlobalSummary);
+      setTrend(trendData as TicketTrendItem[]);
+      setStatus(statusData as TicketStatusItem[]);
+      setEfficiency(efficiencyData as EfficiencySummary);
+      setSla(slaData as SlaSummary);
+      setDownloads(downloadData as DownloadSummary);
+      setSoftwareRanking(softwareData as RankingItem[]);
+      setCustomerRanking(customerData as RankingItem[]);
+      setGlobalWarningTickets((warningData as DashboardTicket[]).map((x) => ({ ...x, riskLevel: "warning" })));
+      setGlobalOverdueTickets((overdueData as DashboardTicket[]).map((x) => ({ ...x, riskLevel: "danger" })));
+    } catch (e) {
+      console.error(e);
+      setError("数据概览加载失败，请稍后重试。");
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    loadDashboard();
-  }, []);
+    load();
+  }, [role]);
 
-  function formatRate(value: number | null) {
-    if (value === null) {
-      return "--";
-    }
-
-    return `${value.toFixed(1)}%`;
-  }
-
-  function formatDuration(minutes: number | null) {
-    if (minutes === null) {
-      return "--";
-    }
-
-    if (minutes < 60) {
-      return `${minutes.toFixed(1)} 分钟`;
-    }
-
-    const hours = minutes / 60;
-
-    if (hours < 24) {
-      return `${hours.toFixed(1)} 小时`;
-    }
-
-    const days = hours / 24;
-
-    return `${days.toFixed(1)} 天`;
-  }
-  /**
-   * 平均响应时间显示。
-   */
-  function formatResponseTime(minutes: number | null) {
-    if (minutes === null) {
-      return "-";
-    }
-
-    if (minutes < 60) {
-      return `${minutes.toFixed(1)} 分钟`;
-    }
-
-    const hours = minutes / 60;
-
-    if (hours < 24) {
-      return `${hours.toFixed(1)} 小时`;
-    }
-
-    const days = hours / 24;
-
-    return `${days.toFixed(1)} 天`;
-  }
-
-  function getTicketStatusName(status: string) {
-    switch (status) {
-      case "Pending":
-        return "待处理";
-
-      case "Processing":
-        return "处理中";
-
-      case "Resolved":
-        return "已解决";
-
-      case "Closed":
-        return "已关闭";
-
-      default:
-        return status;
-    }
-  }
-
-  function getPriorityName(priority: string) {
-    switch (priority) {
-      case "Low":
-        return "低";
-
-      case "Normal":
-        return "普通";
-
-      case "High":
-        return "高";
-
-      case "Urgent":
-        return "紧急";
-
-      default:
-        return priority;
-    }
-  }
-
-  function formatDateTime(value: string) {
-    return new Date(value).toLocaleString("zh-CN", {
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
-
-  /**
-   * ======================================
-   * 折线图配置
-   * ======================================
-   */
   const trendOption = useMemo(
     () => ({
-      tooltip: {
-        trigger: "axis",
-
-        formatter: (params: any[]) => {
-          const item = params?.[0];
-
-          if (!item) {
-            return "";
-          }
-
-          const index = item.dataIndex;
-
-          const source = ticketTrend[index];
-
-          return `
-      ${source.date}<br/>
-      新增工单：<strong>${source.count}</strong>
-    `;
-        },
-      },
-
-      grid: {
-        left: 48,
-        right: 20,
-        top: 30,
-        bottom: 42,
-      },
-
+      tooltip: { trigger: "axis" },
+      grid: { left: 45, right: 24, top: 28, bottom: 36 },
       xAxis: {
         type: "category",
-
         boundaryGap: false,
-
-        data: ticketTrend.map((item) => item.date.substring(5)),
-
-        axisLine: {
-          lineStyle: {
-            color: "#dbe3ee",
-          },
-        },
-
-        axisLabel: {
-          color: "#64748b",
-
-          interval: 4,
-        },
-
-        axisTick: {
-          show: false,
-        },
+        data: trend.map((x) => x.date.substring(5)),
+        axisTick: { show: false },
       },
-
-      yAxis: {
-        type: "value",
-
-        minInterval: 1,
-
-        axisLabel: {
-          color: "#64748b",
-        },
-
-        splitLine: {
-          lineStyle: {
-            color: "#edf1f5",
-          },
-        },
-      },
-
+      yAxis: { type: "value", minInterval: 1 },
       series: [
         {
           name: "新增工单",
-
           type: "line",
-
           smooth: true,
-
-          symbol: "circle",
-
-          symbolSize: 7,
-
           showSymbol: false,
-
-          data: ticketTrend.map((item) => item.count),
-
-          lineStyle: {
-            width: 3,
-            color: "#2563eb",
-          },
-
-          itemStyle: {
-            color: "#2563eb",
-          },
-
-          areaStyle: {
-            color: {
-              type: "linear",
-
-              x: 0,
-              y: 0,
-              x2: 0,
-              y2: 1,
-
-              colorStops: [
-                {
-                  offset: 0,
-                  color: "rgba(37, 99, 235, 0.28)",
-                },
-                {
-                  offset: 1,
-                  color: "rgba(37, 99, 235, 0.02)",
-                },
-              ],
-            },
-          },
-
-          emphasis: {
-            focus: "series",
-          },
+          data: trend.map((x) => x.count),
+          lineStyle: { width: 3 },
+          areaStyle: { opacity: 0.08 },
         },
       ],
     }),
-    [ticketTrend],
+    [trend],
   );
-  const totalTickets = summary?.totalTickets ?? 0;
-  /**
-   * ======================================
-   * 工单状态环形图
-   * ======================================
-   */
+
   const statusOption = useMemo(
     () => ({
-      tooltip: {
-        trigger: "item",
-
-        formatter: "{b}<br/>{c} 个工单 ({d}%)",
-      },
-
-      legend: {
-        bottom: 0,
-
-        icon: "circle",
-
-        textStyle: {
-          color: "#64748b",
-        },
-      },
-      graphic: [
-        {
-          type: "text",
-
-          left: "center",
-
-          top: "34%",
-
-          style: {
-            text: String(totalTickets),
-
-            textAlign: "center",
-
-            fill: "#0f172a",
-
-            fontSize: 26,
-
-            fontWeight: 700,
-          },
-        },
-
-        {
-          type: "text",
-
-          left: "center",
-
-          top: "45%",
-
-          style: {
-            text: "全部工单",
-
-            textAlign: "center",
-
-            fill: "#94a3b8",
-
-            fontSize: 12,
-          },
-        },
-      ],
+      tooltip: { trigger: "item", formatter: "{b}<br/>{c} 个 ({d}%)" },
+      legend: { bottom: 0, icon: "circle" },
       series: [
         {
-          name: "工单状态",
-
           type: "pie",
-
-          radius: ["55%", "75%"],
-
-          center: ["50%", "43%"],
-
-          avoidLabelOverlap: true,
-
-          itemStyle: {
-            borderRadius: 6,
-
-            borderColor: "#ffffff",
-
-            borderWidth: 3,
-          },
-
-          label: {
-            show: false,
-          },
-
-          emphasis: {
-            label: {
-              show: true,
-
-              fontSize: 18,
-
-              fontWeight: "bold",
-            },
-          },
-
-          data: ticketStatus.map((item) => ({
-            value: item.count,
-
-            name: item.name,
-          })),
+          radius: ["54%", "75%"],
+          center: ["50%", "44%"],
+          itemStyle: { borderRadius: 7, borderWidth: 3, borderColor: "#fff" },
+          label: { show: false },
+          data: status.map((x) => ({ name: x.name, value: x.count, status: x.status })),
         },
       ],
     }),
-    [ticketStatus, totalTickets],
-  );
-  const softwareRankingOption = useMemo(
-    () => ({
-      tooltip: {
-        trigger: "axis",
-        axisPointer: {
-          type: "shadow",
-        },
-        formatter: (params: any[]) => {
-          const item = params?.[0];
-
-          if (!item) {
-            return "";
-          }
-
-          return `
-            ${item.name}<br/>
-            工单数量：<strong>${item.value}</strong>
-          `;
-        },
-      },
-
-      grid: {
-        left: 20,
-        right: 35,
-        top: 20,
-        bottom: 15,
-        containLabel: true,
-      },
-
-      xAxis: {
-        type: "value",
-        minInterval: 1,
-
-        axisLabel: {
-          color: "#94a3b8",
-        },
-
-        splitLine: {
-          lineStyle: {
-            color: "#f1f5f9",
-          },
-        },
-      },
-
-      yAxis: {
-        type: "category",
-
-        inverse: true,
-
-        data: softwareRanking.map((item) => item.softwareName),
-
-        axisTick: {
-          show: false,
-        },
-
-        axisLine: {
-          show: false,
-        },
-
-        axisLabel: {
-          width: 150,
-          overflow: "truncate",
-          color: "#475569",
-        },
-      },
-
-      series: [
-        {
-          type: "bar",
-
-          barWidth: 18,
-
-          data: softwareRanking.map((item) => item.ticketCount),
-
-          itemStyle: {
-            color: "#6366f1",
-            borderRadius: [0, 6, 6, 0],
-          },
-
-          label: {
-            show: true,
-            position: "right",
-            color: "#475569",
-          },
-        },
-      ],
-    }),
-    [softwareRanking],
+    [status],
   );
 
-  const customerRankingOption = useMemo(
-    () => ({
-      tooltip: {
-        trigger: "axis",
+  function openTicket(ticket: DashboardTicket) {
+    navigate(`/tickets?ticketId=${ticket.id}`);
+  }
 
-        axisPointer: {
-          type: "shadow",
-        },
-
-        formatter: (params: any[]) => {
-          const item = params?.[0];
-
-          if (!item) {
-            return "";
-          }
-
-          return `
-            ${item.name}<br/>
-            工单数量：<strong>${item.value}</strong>
-          `;
-        },
-      },
-
-      grid: {
-        left: 20,
-        right: 35,
-        top: 20,
-        bottom: 15,
-        containLabel: true,
-      },
-
-      xAxis: {
-        type: "value",
-
-        minInterval: 1,
-
-        axisLabel: {
-          color: "#94a3b8",
-        },
-
-        splitLine: {
-          lineStyle: {
-            color: "#f1f5f9",
-          },
-        },
-      },
-
-      yAxis: {
-        type: "category",
-
-        inverse: true,
-
-        data: customerRanking.map((item) => item.customerName),
-
-        axisTick: {
-          show: false,
-        },
-
-        axisLine: {
-          show: false,
-        },
-
-        axisLabel: {
-          width: 150,
-          overflow: "truncate",
-          color: "#475569",
-        },
-      },
-
-      series: [
-        {
-          type: "bar",
-
-          barWidth: 18,
-
-          data: customerRanking.map((item) => item.ticketCount),
-
-          itemStyle: {
-            color: "#0ea5e9",
-            borderRadius: [0, 6, 6, 0],
-          },
-
-          label: {
-            show: true,
-            position: "right",
-            color: "#475569",
-          },
-        },
-      ],
-    }),
-    [customerRanking],
-  );
-  const downloadTrendOption = useMemo(
-    () => ({
-      tooltip: {
-        trigger: "axis",
-
-        formatter: (params: any[]) => {
-          const item = params?.[0];
-
-          if (!item) {
-            return "";
-          }
-
-          const source = downloadTrend[item.dataIndex];
-
-          return `
-            ${source.date}<br/>
-            下载次数：<strong>${source.count}</strong>
-          `;
-        },
-      },
-
-      grid: {
-        left: 48,
-        right: 25,
-        top: 30,
-        bottom: 42,
-      },
-
-      xAxis: {
-        type: "category",
-
-        boundaryGap: false,
-
-        data: downloadTrend.map((item) => item.date.substring(5)),
-
-        axisLine: {
-          lineStyle: {
-            color: "#dbe3ee",
-          },
-        },
-
-        axisTick: {
-          show: false,
-        },
-
-        axisLabel: {
-          color: "#64748b",
-          interval: 4,
-        },
-      },
-
-      yAxis: {
-        type: "value",
-
-        minInterval: 1,
-
-        axisLabel: {
-          color: "#64748b",
-        },
-
-        splitLine: {
-          lineStyle: {
-            color: "#edf1f5",
-          },
-        },
-      },
-
-      series: [
-        {
-          name: "软件下载",
-
-          type: "line",
-
-          smooth: true,
-
-          showSymbol: false,
-
-          symbol: "circle",
-
-          symbolSize: 7,
-
-          data: downloadTrend.map((item) => item.count),
-
-          lineStyle: {
-            width: 3,
-            color: "#7c3aed",
-          },
-
-          itemStyle: {
-            color: "#7c3aed",
-          },
-
-          areaStyle: {
-            color: {
-              type: "linear",
-
-              x: 0,
-              y: 0,
-              x2: 0,
-              y2: 1,
-
-              colorStops: [
-                {
-                  offset: 0,
-                  color: "rgba(124, 58, 237, 0.25)",
-                },
-                {
-                  offset: 1,
-                  color: "rgba(124, 58, 237, 0.02)",
-                },
-              ],
-            },
-          },
-        },
-      ],
-    }),
-    [downloadTrend],
-  );
-  const staffEfficiencyOption = useMemo(
-    () => ({
-      tooltip: {
-        trigger: "axis",
-
-        axisPointer: {
-          type: "shadow",
-        },
-      },
-
-      legend: {
-        top: 0,
-
-        data: ["已解决", "处理中"],
-
-        textStyle: {
-          color: "#64748b",
-        },
-      },
-
-      grid: {
-        left: 25,
-        right: 30,
-        top: 45,
-        bottom: 20,
-
-        containLabel: true,
-      },
-
-      xAxis: {
-        type: "value",
-
-        minInterval: 1,
-
-        axisLabel: {
-          color: "#94a3b8",
-        },
-
-        splitLine: {
-          lineStyle: {
-            color: "#f1f5f9",
-          },
-        },
-      },
-
-      yAxis: {
-        type: "category",
-
-        inverse: true,
-
-        data: staffEfficiency.map((item) => item.displayName || item.username),
-
-        axisTick: {
-          show: false,
-        },
-
-        axisLine: {
-          show: false,
-        },
-
-        axisLabel: {
-          color: "#475569",
-        },
-      },
-
-      series: [
-        {
-          name: "已解决",
-
-          type: "bar",
-
-          barWidth: 13,
-
-          data: staffEfficiency.map((item) => item.resolvedTicketCount),
-
-          itemStyle: {
-            color: "#22c55e",
-
-            borderRadius: [0, 5, 5, 0],
-          },
-        },
-
-        {
-          name: "处理中",
-
-          type: "bar",
-
-          barWidth: 13,
-
-          data: staffEfficiency.map((item) => item.openTicketCount),
-
-          itemStyle: {
-            color: "#3b82f6",
-
-            borderRadius: [0, 5, 5, 0],
-          },
-        },
-      ],
-    }),
-
-    [staffEfficiency],
-  );
-  const softwareDownloadRankingOption = useMemo(
-    () => ({
-      tooltip: {
-        trigger: "axis",
-
-        axisPointer: {
-          type: "shadow",
-        },
-
-        formatter: (params: any[]) => {
-          const item = params?.[0];
-
-          if (!item) {
-            return "";
-          }
-
-          return `
-            ${item.name}<br/>
-            下载次数：<strong>${item.value}</strong>
-          `;
-        },
-      },
-
-      grid: {
-        left: 20,
-        right: 35,
-        top: 20,
-        bottom: 15,
-        containLabel: true,
-      },
-
-      xAxis: {
-        type: "value",
-
-        minInterval: 1,
-
-        axisLabel: {
-          color: "#94a3b8",
-        },
-
-        splitLine: {
-          lineStyle: {
-            color: "#f1f5f9",
-          },
-        },
-      },
-
-      yAxis: {
-        type: "category",
-
-        inverse: true,
-
-        data: softwareDownloadRanking.map((item) => item.softwareName),
-
-        axisTick: {
-          show: false,
-        },
-
-        axisLine: {
-          show: false,
-        },
-
-        axisLabel: {
-          width: 150,
-          overflow: "truncate",
-          color: "#475569",
-        },
-      },
-
-      series: [
-        {
-          type: "bar",
-
-          barWidth: 18,
-
-          data: softwareDownloadRanking.map((item) => item.downloadCount),
-
-          itemStyle: {
-            color: "#7c3aed",
-            borderRadius: [0, 6, 6, 0],
-          },
-
-          label: {
-            show: true,
-            position: "right",
-            color: "#475569",
-          },
-        },
-      ],
-    }),
-    [softwareDownloadRanking],
-  );
-
-  const customerDownloadRankingOption = useMemo(
-    () => ({
-      tooltip: {
-        trigger: "axis",
-
-        axisPointer: {
-          type: "shadow",
-        },
-
-        formatter: (params: any[]) => {
-          const item = params?.[0];
-
-          if (!item) {
-            return "";
-          }
-
-          return `
-            ${item.name}<br/>
-            下载次数：<strong>${item.value}</strong>
-          `;
-        },
-      },
-
-      grid: {
-        left: 20,
-        right: 35,
-        top: 20,
-        bottom: 15,
-        containLabel: true,
-      },
-
-      xAxis: {
-        type: "value",
-
-        minInterval: 1,
-
-        axisLabel: {
-          color: "#94a3b8",
-        },
-
-        splitLine: {
-          lineStyle: {
-            color: "#f1f5f9",
-          },
-        },
-      },
-
-      yAxis: {
-        type: "category",
-
-        inverse: true,
-
-        data: customerDownloadRanking.map((item) => item.customerName),
-
-        axisTick: {
-          show: false,
-        },
-
-        axisLine: {
-          show: false,
-        },
-
-        axisLabel: {
-          width: 150,
-          overflow: "truncate",
-          color: "#475569",
-        },
-      },
-
-      series: [
-        {
-          type: "bar",
-
-          barWidth: 18,
-
-          data: customerDownloadRanking.map((item) => item.downloadCount),
-
-          itemStyle: {
-            color: "#14b8a6",
-            borderRadius: [0, 6, 6, 0],
-          },
-
-          label: {
-            show: true,
-            position: "right",
-            color: "#475569",
-          },
-        },
-      ],
-    }),
-    [customerDownloadRanking],
-  );
   if (loading) {
     return (
-      <div className="content">
-        <div className="dashboard-loading">正在加载数据概览...</div>
+      <div className="content u-page">
+        <div className="u-loading-card">正在加载你的工作台...</div>
       </div>
     );
   }
 
-  if (errorMessage || summary === null) {
+  if (error || !overview) {
     return (
-      <div className="content">
-        <div className="dashboard-error">
-          <div>{errorMessage || "暂无 Dashboard 数据"}</div>
-
-          <button className="primary-button" onClick={loadDashboard}>
+      <div className="content u-page">
+        <div className="u-error-card">
+          <span>{error || "暂无工作台数据"}</span>
+          <button type="button" className="primary-button" onClick={load}>
             重新加载
           </button>
         </div>
@@ -1421,1001 +258,229 @@ function DashboardPage() {
     );
   }
 
-  const cards = [
-    {
-      title: "启用客户",
-
-      value: summary.activeCustomers,
-
-      description: "当前正常服务客户",
-
-      icon: <Users size={22} />,
-
-      className: "dashboard-kpi-blue",
-    },
-
-    {
-      title: "启用软件",
-
-      value: summary.activeSoftwares,
-
-      description: "当前启用软件产品",
-
-      icon: <Package size={22} />,
-
-      className: "dashboard-kpi-purple",
-    },
-
-    {
-      title: "历史工单",
-
-      value: summary.totalTickets,
-
-      description: "平台累计工单数量",
-
-      icon: <Tickets size={22} />,
-
-      className: "dashboard-kpi-slate",
-    },
-
-    {
-      title: "待处理工单",
-
-      value: summary.openTickets,
-
-      description: "待处理 + 处理中",
-
-      icon: <CircleAlert size={22} />,
-
-      className: "dashboard-kpi-orange",
-    },
-
-    {
-      title: "本月新增",
-
-      value: summary.thisMonthTickets,
-
-      description: "本月新增客户工单",
-
-      icon: <CalendarDays size={22} />,
-
-      className: "dashboard-kpi-green",
-    },
-
-    {
-      title: "平均首次响应",
-
-      value: formatResponseTime(summary.averageFirstResponseMinutes),
-
-      description: "客服首次公开响应",
-
-      icon: <Clock3 size={22} />,
-
-      className: "dashboard-kpi-cyan",
-    },
-
-    {
-      title: "累计下载",
-
-      value: downloadSummary.totalDownloads,
-
-      description: "安装包累计下载次数",
-
-      icon: <Download size={22} />,
-
-      className: "dashboard-kpi-indigo",
-    },
-
-    {
-      title: "本月下载",
-
-      value: downloadSummary.thisMonthDownloads,
-
-      description: "本月安装包下载次数",
-
-      icon: <FileDown size={22} />,
-
-      className: "dashboard-kpi-rose",
-    },
-  ];
-
   return (
-    <div className="content dashboard-page">
-      {/* ==============================
-          页面头部
-          ============================== */}
-      <div className="dashboard-header">
+    <div className="content u-page">
+      <header className="u-page-header">
         <div>
-          <div className="dashboard-title">数据概览</div>
-
-          <div className="dashboard-subtitle">
-            实时了解客户、软件及工单运行情况
-          </div>
+          <span className="u-eyebrow">WORKSPACE</span>
+          <h2>{getDashboardTitle(role)}</h2>
+          <p>{getDashboardSubtitle(role, overview.customerName)}</p>
         </div>
-
-        <button
-          type="button"
-          className="dashboard-refresh-button"
-          onClick={loadDashboard}
-          disabled={loading}
-        >
-          <RefreshCw
-            size={16}
-            className={loading ? "dashboard-refresh-spin" : ""}
-          />
-
-          {loading ? "正在刷新" : "刷新数据"}
+        <button type="button" className="u-secondary-button" onClick={load}>
+          <RefreshCw size={16} />
+          刷新数据
         </button>
-      </div>
-
-      {/* ==============================
-          KPI
-          ============================== */}
-      <div className="dashboard-kpi-grid">
-        {cards.map((card) => (
-          <div className="dashboard-kpi-card" key={card.title}>
-            <div className={"dashboard-kpi-icon " + card.className}>
-              {card.icon}
-            </div>
-
-            <div className="dashboard-kpi-title">{card.title}</div>
-
-            <div className="dashboard-kpi-value">{card.value}</div>
-
-            <div className="dashboard-kpi-description">{card.description}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* ==============================
-          图表
-          ============================== */}
-      <div className="dashboard-chart-grid">
-        {/* 工单趋势 */}
-        <div className="dashboard-chart-card dashboard-trend-card">
-          <div className="dashboard-card-header">
-            <div>
-              <div className="dashboard-card-title">
-                <TrendingUp size={18} />
-                工单趋势
-              </div>
-
-              <div className="dashboard-card-description">
-                最近30天客户工单新增情况
-              </div>
-            </div>
-          </div>
-
-          <ReactECharts
-            option={trendOption}
-            style={{
-              height: "340px",
-              width: "100%",
-            }}
-          />
-        </div>
-
-        {/* 工单状态 */}
-        <div className="dashboard-chart-card">
-          <div className="dashboard-card-header">
-            <div>
-              <div className="dashboard-card-title">
-                <ChartPie size={18} />
-                工单状态
-              </div>
-
-              <div className="dashboard-card-description">
-                当前工单状态整体分布
-              </div>
-            </div>
-          </div>
-
-          <ReactECharts
-            option={statusOption}
-            style={{
-              height: "340px",
-              width: "100%",
-            }}
-          />
-        </div>
-      </div>
-      {/* =================================================
-    TOP5 排行
-    ================================================= */}
-      <div className="dashboard-ranking-grid">
-        <div className="dashboard-chart-card">
-          <div className="dashboard-card-header">
-            <div>
-              <div className="dashboard-card-title">软件问题 TOP5</div>
-
-              <div className="dashboard-card-description">
-                按历史工单数量统计问题较多的软件
-              </div>
-            </div>
-          </div>
-
-          {softwareRanking.length === 0 ? (
-            <div className="dashboard-empty">暂无软件工单数据</div>
-          ) : (
-            <ReactECharts
-              option={softwareRankingOption}
-              style={{
-                height: "300px",
-                width: "100%",
-              }}
-            />
-          )}
-        </div>
-
-        <div className="dashboard-chart-card">
-          <div className="dashboard-card-header">
-            <div>
-              <div className="dashboard-card-title">客户问题 TOP5</div>
-
-              <div className="dashboard-card-description">
-                按历史工单数量统计售后需求较多的客户
-              </div>
-            </div>
-          </div>
-
-          {customerRanking.length === 0 ? (
-            <div className="dashboard-empty">暂无客户工单数据</div>
-          ) : (
-            <ReactECharts
-              option={customerRankingOption}
-              style={{
-                height: "300px",
-                width: "100%",
-              }}
-            />
-          )}
-        </div>
-      </div>
-      {/* =================================================
-    工单处理效率
-    ================================================= */}
-      <div className="dashboard-section-heading">
-        <div>
-          <div className="dashboard-section-title">工单处理效率</div>
-
-          <div className="dashboard-card-description">
-            响应速度、解决效率及人员当前工作量
-          </div>
-        </div>
-      </div>
-
-      {ticketEfficiency && (
-        <>
-          {/* =============================================
-        效率 KPI
-        ============================================= */}
-          <div className="dashboard-efficiency-grid">
-            <div className="dashboard-efficiency-card">
-              <div className="dashboard-efficiency-label">平均首次响应</div>
-
-              <div className="dashboard-efficiency-value">
-                {formatDuration(ticketEfficiency.averageFirstResponseMinutes)}
-              </div>
-
-              <div className="dashboard-efficiency-meta">
-                {ticketEfficiency.responseSampleCount} 条有效样本
-              </div>
-            </div>
-
-            <div className="dashboard-efficiency-card">
-              <div className="dashboard-efficiency-label">平均解决时长</div>
-
-              <div className="dashboard-efficiency-value">
-                {formatDuration(ticketEfficiency.averageResolutionMinutes)}
-              </div>
-
-              <div className="dashboard-efficiency-meta">
-                {ticketEfficiency.resolutionSampleCount} 条有效样本
-              </div>
-            </div>
-
-            <div className="dashboard-efficiency-card">
-              <div className="dashboard-efficiency-label">响应率</div>
-
-              <div className="dashboard-efficiency-value">
-                {ticketEfficiency.responseRate}%
-              </div>
-
-              <div className="dashboard-efficiency-meta">
-                {ticketEfficiency.respondedTickets} /{" "}
-                {ticketEfficiency.totalTickets} 个工单
-              </div>
-            </div>
-
-            <div className="dashboard-efficiency-card">
-              <div className="dashboard-efficiency-label">解决率</div>
-
-              <div className="dashboard-efficiency-value">
-                {ticketEfficiency.resolutionRate}%
-              </div>
-
-              <div className="dashboard-efficiency-meta">
-                {ticketEfficiency.resolvedTickets} /{" "}
-                {ticketEfficiency.totalTickets} 个工单
-              </div>
-            </div>
-          </div>
-
-          {/* =============================================
-        人员效率
-        ============================================= */}
-          <div className="dashboard-efficiency-content">
-            {/* 左侧图表 */}
-            <div className="dashboard-chart-card">
-              <div className="dashboard-card-header">
-                <div>
-                  <div className="dashboard-card-title">人员处理情况</div>
-
-                  <div className="dashboard-card-description">
-                    当前处理中与已解决工单数量
-                  </div>
-                </div>
-              </div>
-
-              {staffEfficiency.length === 0 ? (
-                <div className="dashboard-empty">暂无人员处理数据</div>
-              ) : (
-                <ReactECharts
-                  option={staffEfficiencyOption}
-                  style={{
-                    height: "330px",
-                    width: "100%",
-                  }}
-                />
-              )}
-            </div>
-
-            {/* 右侧人员表格 */}
-            <div className="dashboard-chart-card">
-              <div className="dashboard-card-header">
-                <div>
-                  <div className="dashboard-card-title">处理效率排行</div>
-
-                  <div className="dashboard-card-description">
-                    按当前有效已解决工单数量排序
-                  </div>
-                </div>
-              </div>
-
-              <div className="dashboard-staff-table-wrapper">
-                <table className="dashboard-staff-table">
-                  <thead>
-                    <tr>
-                      <th>人员</th>
-
-                      <th>角色</th>
-
-                      <th>处理中</th>
-
-                      <th>已解决</th>
-
-                      <th>平均解决</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {staffEfficiency.map((staff) => (
-                      <tr key={staff.userId}>
-                        <td>
-                          <div className="dashboard-staff-name">
-                            {staff.displayName || staff.username}
-                          </div>
-
-                          <div className="dashboard-staff-username">
-                            {staff.username}
-                          </div>
-                        </td>
-
-                        <td>
-                          <span
-                            className={
-                              "dashboard-role-badge " +
-                              (staff.role === "Support"
-                                ? "dashboard-role-support"
-                                : "dashboard-role-developer")
-                            }
-                          >
-                            {staff.role === "Support" ? "售后" : "开发"}
-                          </span>
-                        </td>
-
-                        <td>{staff.openTicketCount}</td>
-
-                        <td>
-                          <strong>{staff.resolvedTicketCount}</strong>
-                        </td>
-
-                        <td>
-                          {formatDuration(staff.averageResolutionMinutes)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* =================================================
-    SLA 服务质量
-    ================================================= */}
-      <div className="dashboard-section-heading">
-        <div>
-          <div className="dashboard-section-title">SLA 服务质量</div>
-
-          <div className="dashboard-card-description">
-            根据工单创建时保存的 SLA 规则快照进行统计
-          </div>
-        </div>
-      </div>
-
-      {slaSummary && (
-        <>
-          {/* =============================================
-        SLA KPI
-        ============================================= */}
-          <div className="dashboard-sla-grid">
-            {/* 首次响应达标率 */}
-            <div className="dashboard-sla-card">
-              <div className="dashboard-sla-icon dashboard-sla-icon-success">
-                <ShieldCheck size={22} />
-              </div>
-
-              <div>
-                <div className="dashboard-sla-label">首次响应 SLA</div>
-
-                <div className="dashboard-sla-value">
-                  {formatRate(slaSummary.responseComplianceRate)}
-                </div>
-
-                <div className="dashboard-sla-meta">
-                  {slaSummary.responseMetCount}
-                  {" / "}
-                  {slaSummary.responseEvaluatedCount}
-                  {" 达标"}
-                </div>
-              </div>
-            </div>
-
-            {/* 解决达标率 */}
-            <div className="dashboard-sla-card">
-              <div className="dashboard-sla-icon dashboard-sla-icon-success">
-                <ShieldCheck size={22} />
-              </div>
-
-              <div>
-                <div className="dashboard-sla-label">解决 SLA</div>
-
-                <div className="dashboard-sla-value">
-                  {formatRate(slaSummary.resolutionComplianceRate)}
-                </div>
-
-                <div className="dashboard-sla-meta">
-                  {slaSummary.resolutionMetCount}
-                  {" / "}
-                  {slaSummary.resolutionEvaluatedCount}
-                  {" 达标"}
-                </div>
-              </div>
-            </div>
-
-            {/* 当前响应超时 */}
-            <div
-              className={
-                "dashboard-sla-card " +
-                (slaSummary.currentResponseOverdueCount > 0
-                  ? "dashboard-sla-card-danger"
-                  : "")
-              }
-            >
-              <div className="dashboard-sla-icon dashboard-sla-icon-danger">
-                <TimerOff size={22} />
-              </div>
-
-              <div>
-                <div className="dashboard-sla-label">当前响应超时</div>
-
-                <div className="dashboard-sla-value">
-                  {slaSummary.currentResponseOverdueCount}
-                </div>
-
-                <div className="dashboard-sla-meta">尚未首次响应</div>
-              </div>
-            </div>
-
-            {/* 当前解决超时 */}
-            <div
-              className={
-                "dashboard-sla-card " +
-                (slaSummary.currentResolutionOverdueCount > 0
-                  ? "dashboard-sla-card-danger"
-                  : "")
-              }
-            >
-              <div className="dashboard-sla-icon dashboard-sla-icon-danger">
-                <ShieldAlert size={22} />
-              </div>
-
-              <div>
-                <div className="dashboard-sla-label">当前解决超时</div>
-
-                <div className="dashboard-sla-value">
-                  {slaSummary.currentResolutionOverdueCount}
-                </div>
-
-                <div className="dashboard-sla-meta">尚未解决</div>
-              </div>
-            </div>
-          </div>
-
-          {/* =============================================
-        没有 SLA 数据时的提示
-        ============================================= */}
-          {slaSummary.slaTicketCount === 0 && (
-            <div className="dashboard-sla-no-data">
-              当前还没有使用 SLA 规则创建的新工单。 SLA
-              配置不会追溯修改历史工单， 新建工单后这里会开始产生统计数据。
-            </div>
-          )}
-          {/* =============================================
-    SLA 即将超时
-    ============================================= */}
-          <div className="dashboard-sla-warning-card">
-            <div className="dashboard-card-header">
-              <div>
-                <div className="dashboard-card-title">
-                  <TriangleAlert size={18} />
-                  SLA 即将超时
-                </div>
-
-                <div className="dashboard-card-description">
-                  已进入 SLA 预警窗口，但尚未真正超时
-                </div>
-              </div>
-
-              {slaWarningTickets.length > 0 && (
-                <div className="dashboard-sla-warning-count">
-                  {slaWarningTickets.length} 个预警工单
-                </div>
-              )}
-            </div>
-
-            {slaWarningTickets.length === 0 ? (
-              <div className="dashboard-sla-warning-empty">
-                当前没有即将超时的工单
-              </div>
-            ) : (
-              <div className="dashboard-sla-table-wrapper">
-                <table className="dashboard-sla-table">
-                  <thead>
-                    <tr>
-                      <th>工单</th>
-
-                      <th>优先级</th>
-
-                      <th>客户 / 软件</th>
-
-                      <th>负责人</th>
-
-                      <th>预警类型</th>
-
-                      <th>剩余时间</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {slaWarningTickets.map((ticket) => {
-                      /*
-                       * 同时存在两种预警时，
-                       * 展示离截止时间最近的一种。
-                       */
-                      const remainingMinutes = ticket.resolutionWarning
-                        ? ticket.resolutionRemainingMinutes
-                        : ticket.responseRemainingMinutes;
-
-                      return (
-                        <tr key={ticket.id}>
-                          <td>
-                            <div className="dashboard-sla-ticket-no">
-                              {ticket.ticketNo}
-                            </div>
-
-                            <div
-                              className="dashboard-sla-ticket-title"
-                              title={ticket.title}
-                            >
-                              {ticket.title}
-                            </div>
-                          </td>
-
-                          <td>
-                            <span
-                              className={
-                                "dashboard-sla-priority " +
-                                `dashboard-sla-priority-${ticket.priority.toLowerCase()}`
-                              }
-                            >
-                              {getPriorityName(ticket.priority)}
-                            </span>
-                          </td>
-
-                          <td>
-                            <div className="dashboard-sla-main-text">
-                              {ticket.customerName}
-                            </div>
-
-                            <div className="dashboard-sla-secondary-text">
-                              {ticket.softwareName}
-                            </div>
-                          </td>
-
-                          <td>{ticket.assignedToName || "未分配"}</td>
-
-                          <td>
-                            <div className="dashboard-sla-warning-tags">
-                              {ticket.responseWarning && (
-                                <span className="dashboard-sla-warning-tag">
-                                  响应预警
-                                </span>
-                              )}
-
-                              {ticket.resolutionWarning && (
-                                <span className="dashboard-sla-warning-tag">
-                                  解决预警
-                                </span>
-                              )}
-                            </div>
-                          </td>
-
-                          <td>
-                            <strong className="dashboard-sla-remaining-time">
-                              剩余 {  formatDuration(
-      ticket.minRemainingMinutes,
-    )}
-                            </strong>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-          {/* =============================================
-        当前超时工单
-        ============================================= */}
-          <div className="dashboard-sla-overdue-card">
-            <div className="dashboard-card-header">
-              <div>
-                <div className="dashboard-card-title">
-                  <TriangleAlert size={18} />
-                  SLA 超时工单
-                </div>
-
-                <div className="dashboard-card-description">
-                  当前仍处于待处理或处理中的超时工单
-                </div>
-              </div>
-
-              {slaOverdueTickets.length > 0 && (
-                <div className="dashboard-sla-overdue-count">
-                  {slaOverdueTickets.length} 个风险工单
-                </div>
-              )}
-            </div>
-
-            {slaOverdueTickets.length === 0 ? (
-              <div className="dashboard-sla-safe">
-                <ShieldCheck size={24} />
-
-                <div>
-                  <div className="dashboard-sla-safe-title">
-                    当前没有 SLA 超时工单
-                  </div>
-
-                  <div className="dashboard-sla-safe-description">
-                    当前需要处理的工单均未超过 SLA 截止时间
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="dashboard-sla-table-wrapper">
-                <table className="dashboard-sla-table">
-                  <thead>
-                    <tr>
-                      <th>工单</th>
-
-                      <th>优先级</th>
-
-                      <th>客户 / 软件</th>
-
-                      <th>负责人</th>
-
-                      <th>超时类型</th>
-
-                      <th>超时时长</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {slaOverdueTickets.map((ticket) => {
-                      /*
-                       * 如果解决已经超时，
-                       * 优先展示解决超时。
-                       *
-                       * 因为解决 SLA
-                       * 一般属于更严重的整体超时。
-                       */
-                      const overdueMinutes = ticket.resolutionOverdue
-                        ? ticket.resolutionOverdueMinutes
-                        : ticket.responseOverdueMinutes;
-
-                      return (
-                        <tr key={ticket.id}>
-                          <td>
-                            <div className="dashboard-sla-ticket-no">
-                              {ticket.ticketNo}
-                            </div>
-
-                            <div
-                              className="dashboard-sla-ticket-title"
-                              title={ticket.title}
-                            >
-                              {ticket.title}
-                            </div>
-                          </td>
-
-                          <td>
-                            <span
-                              className={
-                                "dashboard-sla-priority " +
-                                `dashboard-sla-priority-${ticket.priority.toLowerCase()}`
-                              }
-                            >
-                              {getPriorityName(ticket.priority)}
-                            </span>
-                          </td>
-
-                          <td>
-                            <div className="dashboard-sla-main-text">
-                              {ticket.customerName}
-                            </div>
-
-                            <div className="dashboard-sla-secondary-text">
-                              {ticket.softwareName}
-                            </div>
-                          </td>
-
-                          <td>{ticket.assignedToName || "未分配"}</td>
-
-                          <td>
-                            <div className="dashboard-sla-breach-tags">
-                              {ticket.responseOverdue && (
-                                <span className="dashboard-sla-breach-tag">
-                                  响应超时
-                                </span>
-                              )}
-
-                              {ticket.resolutionOverdue && (
-                                <span className="dashboard-sla-breach-tag">
-                                  解决超时
-                                </span>
-                              )}
-                            </div>
-                          </td>
-
-                          <td>
-                            <strong className="dashboard-sla-overdue-time">
-                              已超时 {formatDuration(overdueMinutes)}
-                            </strong>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </>
-      )}
-
-      {/* =================================================
-    下载统计
-    ================================================= */}
-      <div className="dashboard-section-heading">
-        <div>
-          <div className="dashboard-section-title">下载分析</div>
-
-          <div className="dashboard-card-description">
-            软件版本的客户下载与使用情况
-          </div>
-        </div>
-      </div>
-
-      <div className="dashboard-chart-grid">
-        <div
-          className="
-      dashboard-chart-card
-      dashboard-full-chart-card
-    "
-        >
-          <div className="dashboard-card-header">
-            <div>
-              <div className="dashboard-card-title">
-                <Download size={18} />
-                下载趋势
-              </div>
-
-              <div className="dashboard-card-description">
-                最近30天软件安装包下载次数
-              </div>
-            </div>
-          </div>
-
-          <ReactECharts
-            option={downloadTrendOption}
-            style={{
-              height: "320px",
-              width: "100%",
-            }}
-          />
-        </div>
-      </div>
-
-      <div className="dashboard-ranking-grid">
-        <div className="dashboard-chart-card">
-          <div className="dashboard-card-header">
-            <div>
-              <div className="dashboard-card-title">软件下载 TOP5</div>
-
-              <div className="dashboard-card-description">
-                按安装包下载次数统计
-              </div>
-            </div>
-          </div>
-
-          {softwareDownloadRanking.length === 0 ? (
-            <div className="dashboard-empty">暂无软件下载数据</div>
-          ) : (
-            <ReactECharts
-              option={softwareDownloadRankingOption}
-              style={{
-                height: "300px",
-                width: "100%",
-              }}
-            />
-          )}
-        </div>
-
-        <div className="dashboard-chart-card">
-          <div className="dashboard-card-header">
-            <div>
-              <div className="dashboard-card-title">客户下载 TOP5</div>
-
-              <div className="dashboard-card-description">
-                按客户安装包下载次数统计
-              </div>
-            </div>
-          </div>
-
-          {customerDownloadRanking.length === 0 ? (
-            <div className="dashboard-empty">暂无客户下载数据</div>
-          ) : (
-            <ReactECharts
-              option={customerDownloadRankingOption}
-              style={{
-                height: "300px",
-                width: "100%",
-              }}
-            />
-          )}
-        </div>
-      </div>
-
-      {/* =================================================
-    最近工单
-    ================================================= */}
-      <div className="dashboard-recent-card">
-        <div className="dashboard-card-header">
-          <div>
-            <div className="dashboard-card-title">最近工单</div>
-
-            <div className="dashboard-card-description">
-              最近提交的客户问题与当前处理状态
-            </div>
-          </div>
-        </div>
-
-        {recentTickets.length === 0 ? (
-          <div className="dashboard-empty">暂无工单数据</div>
-        ) : (
-          <div className="dashboard-table-wrapper">
-            <table className="dashboard-table">
-              <thead>
-                <tr>
-                  <th>工单编号</th>
-
-                  <th>问题标题</th>
-
-                  <th>客户</th>
-
-                  <th>软件</th>
-
-                  <th>状态</th>
-
-                  <th>优先级</th>
-
-                  <th>处理人</th>
-
-                  <th>创建时间</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {recentTickets.map((ticket) => (
-                  <tr key={ticket.id}>
-                    <td>
-                      <span className="dashboard-ticket-no">
-                        {ticket.ticketNo}
-                      </span>
-                    </td>
-
-                    <td>
-                      <div
-                        className="dashboard-ticket-title"
-                        title={ticket.title}
-                      >
-                        {ticket.title}
-                      </div>
-                    </td>
-
-                    <td>{ticket.customerName}</td>
-
-                    <td>{ticket.softwareName}</td>
-
-                    <td>
-                      <span
-                        className={
-                          "dashboard-status-badge " +
-                          `dashboard-status-${ticket.status.toLowerCase()}`
-                        }
-                      >
-                        {getTicketStatusName(ticket.status)}
-                      </span>
-                    </td>
-
-                    <td>
-                      <span
-                        className={
-                          "dashboard-priority-badge " +
-                          `dashboard-priority-${ticket.priority.toLowerCase()}`
-                        }
-                      >
-                        {getPriorityName(ticket.priority)}
-                      </span>
-                    </td>
-
-                    <td>{ticket.assignedToName || "未分配"}</td>
-
-                    <td>{formatDateTime(ticket.createdAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      </header>
+
+      {isManagement && summary ? (
+        <ManagementDashboard
+          summary={summary}
+          overview={overview}
+          efficiency={efficiency}
+          sla={sla}
+          downloads={downloads}
+          trendOption={trendOption}
+          statusOption={statusOption}
+          softwareRanking={softwareRanking}
+          customerRanking={customerRanking}
+          warningTickets={globalWarningTickets}
+          overdueTickets={globalOverdueTickets}
+          navigate={navigate}
+          openTicket={openTicket}
+        />
+      ) : role === "Developer" ? (
+        <DeveloperDashboard overview={overview} navigate={navigate} openTicket={openTicket} />
+      ) : role === "Customer" ? (
+        <CustomerDashboard overview={overview} navigate={navigate} openTicket={openTicket} />
+      ) : role === "Sales" ? (
+        <SalesDashboard overview={overview} navigate={navigate} />
+      ) : null}
     </div>
   );
+}
+
+function ManagementDashboard({
+  summary,
+  overview,
+  efficiency,
+  sla,
+  downloads,
+  trendOption,
+  statusOption,
+  softwareRanking,
+  customerRanking,
+  warningTickets,
+  overdueTickets,
+  navigate,
+  openTicket,
+}: {
+  summary: GlobalSummary;
+  overview: WorkOverview;
+  efficiency: EfficiencySummary | null;
+  sla: SlaSummary | null;
+  downloads: DownloadSummary | null;
+  trendOption: object;
+  statusOption: object;
+  softwareRanking: RankingItem[];
+  customerRanking: RankingItem[];
+  warningTickets: DashboardTicket[];
+  overdueTickets: DashboardTicket[];
+  navigate: ReturnType<typeof useNavigate>;
+  openTicket: (ticket: DashboardTicket) => void;
+}) {
+  return (
+    <>
+      <div className="u-kpi-grid u-kpi-grid-4">
+        <KpiCard title="启用客户" value={summary.activeCustomers} description="当前正常服务客户" icon={<Building2 />} onClick={() => navigate("/customers")} />
+        <KpiCard title="启用软件" value={summary.activeSoftwares} description="当前启用产品" icon={<Boxes />} tone="purple" onClick={() => navigate("/software")} />
+        <KpiCard title="待处理工单" value={summary.openTickets} description="待处理 + 处理中" icon={<Tickets />} tone="orange" onClick={() => navigate("/tickets?status=open")} />
+        <KpiCard title="我的待办" value={overview.myOpenCount} description="当前分配给我的工单" icon={<UserRoundCheck />} tone="green" onClick={() => navigate("/tickets?scope=my&status=open")} />
+        <KpiCard title="未分配" value={overview.unassignedCount} description="需要售后尽快分诊" icon={<AlertTriangle />} tone="red" onClick={() => navigate("/tickets?scope=unassigned&status=open")} />
+        <KpiCard title="本月新增工单" value={summary.thisMonthTickets} description="本月客户问题" icon={<TicketCheck />} tone="slate" onClick={() => navigate("/tickets?period=thisMonth")} />
+        <KpiCard title="累计下载" value={downloads?.totalDownloads ?? 0} description="安装包累计下载" icon={<Download />} tone="purple" onClick={() => navigate("/download-records")} />
+        <KpiCard title="本月下载" value={downloads?.thisMonthDownloads ?? 0} description="本月安装包下载" icon={<FileDown />} tone="blue" onClick={() => navigate("/download-records?period=thisMonth")} />
+      </div>
+
+      <div className="u-grid-2">
+        <section className="u-panel">
+          <div className="u-panel-head"><div><h3>工单趋势</h3><p>最近30天新增工单</p></div></div>
+          <ReactECharts option={trendOption} style={{ height: 310 }} />
+        </section>
+        <section className="u-panel">
+          <div className="u-panel-head"><div><h3>工单状态</h3><p>点击图例了解当前工单分布</p></div></div>
+          <ReactECharts
+            option={statusOption}
+            style={{ height: 310 }}
+            onEvents={{
+              click: (params: { data?: { status?: string } }) => {
+                const clickedStatus = params.data?.status;
+                if (clickedStatus) navigate(`/tickets?status=${clickedStatus}`);
+              },
+            }}
+          />
+        </section>
+      </div>
+
+      <div className="u-section-title"><div><h3>服务效率与 SLA</h3><p>把“处理快不快”和“是否超时”放在同一处观察</p></div></div>
+      <div className="u-kpi-grid u-kpi-grid-4">
+        <KpiCard title="平均首次响应" value={formatDuration(efficiency?.averageFirstResponseMinutes)} description="有效样本平均值" icon={<Clock3 />} />
+        <KpiCard title="平均解决时长" value={formatDuration(efficiency?.averageResolutionMinutes)} description="已解决工单平均值" icon={<Wrench />} tone="green" />
+        <KpiCard title="响应 SLA" value={formatRate(sla?.responseComplianceRate)} description={`${sla?.responseMetCount ?? 0}/${sla?.responseEvaluatedCount ?? 0} 达标`} icon={<CheckCircle2 />} tone="green" />
+        <KpiCard title="解决 SLA" value={formatRate(sla?.resolutionComplianceRate)} description={`${sla?.resolutionMetCount ?? 0}/${sla?.resolutionEvaluatedCount ?? 0} 达标`} icon={<ShieldAlert />} tone={(sla?.currentResolutionOverdueCount ?? 0) > 0 ? "red" : "blue"} />
+      </div>
+
+      <div className="u-grid-2">
+        <DashboardTicketList title="即将超时" subtitle="进入 SLA 黄色预警窗口" tickets={warningTickets} onTicketClick={openTicket} emptyText="当前没有即将超时工单" />
+        <DashboardTicketList title="已经超时" subtitle="优先处理红色风险工单" tickets={overdueTickets} onTicketClick={openTicket} emptyText="当前没有 SLA 超时工单" />
+      </div>
+
+      <div className="u-grid-2">
+        <RankingPanel title="软件问题 TOP5" items={softwareRanking.map((x) => ({ id: x.softwareId, name: x.softwareName ?? "-", count: x.ticketCount ?? 0 }))} onClick={(id) => navigate(`/tickets?softwareId=${id}`)} />
+        <RankingPanel title="客户问题 TOP5" items={customerRanking.map((x) => ({ id: x.customerId, name: x.customerName ?? "-", count: x.ticketCount ?? 0 }))} onClick={(id) => navigate(`/tickets?customerId=${id}`)} />
+      </div>
+
+      <DashboardTicketList title="我的最近工单" subtitle="只显示当前分配给我的工作" tickets={overview.recentTickets} onTicketClick={openTicket} action={<button className="u-link-button" onClick={() => navigate("/tickets?scope=my")}>查看全部</button>} />
+    </>
+  );
+}
+
+function DeveloperDashboard({ overview, navigate, openTicket }: RoleDashboardProps) {
+  return (
+    <>
+      <div className="u-kpi-grid u-kpi-grid-3">
+        <KpiCard title="我的待处理" value={overview.myOpenCount} description="待处理 + 处理中" icon={<Wrench />} tone="blue" onClick={() => navigate("/tickets?scope=my&status=open")} />
+        <KpiCard title="我的紧急工单" value={overview.myUrgentCount} description="优先查看" icon={<AlertTriangle />} tone="red" onClick={() => navigate("/tickets?scope=my&priority=Urgent&status=open")} />
+        <KpiCard title="本月已解决" value={overview.myResolvedThisMonth} description="本月完成数量" icon={<CheckCircle2 />} tone="green" onClick={() => navigate("/tickets?scope=my&status=Resolved&period=thisMonth")} />
+      </div>
+      <div className="u-grid-2">
+        <DashboardTicketList title="需要优先关注" subtitle="紧急、即将超时或已经超时" tickets={overview.attentionTickets} onTicketClick={openTicket} emptyText="当前没有高风险工单" />
+        <DashboardTicketList title="最近分配给我的工单" tickets={overview.recentTickets} onTicketClick={openTicket} />
+      </div>
+    </>
+  );
+}
+
+function CustomerDashboard({ overview, navigate, openTicket }: RoleDashboardProps) {
+  return (
+    <>
+      <div className="u-customer-welcome">
+        <div><span>客户服务门户</span><h3>{overview.customerName || "您的公司"}</h3><p>在这里查看软件、提交问题并跟踪处理进度。</p></div>
+        <button className="primary-button" onClick={() => navigate("/tickets?new=1")}>提交新问题</button>
+      </div>
+      <div className="u-kpi-grid u-kpi-grid-3">
+        <KpiCard title="我的软件" value={overview.customerSoftwareCount} description="已授权的软件产品" icon={<Boxes />} tone="purple" onClick={() => navigate("/my-software")} />
+        <KpiCard title="进行中的问题" value={overview.myOpenCount} description="公司当前未结束工单" icon={<Headphones />} tone="orange" onClick={() => navigate("/tickets?status=open")} />
+        <KpiCard title="本月已解决" value={overview.myResolvedThisMonth} description="本月完成的客户问题" icon={<CheckCircle2 />} tone="green" onClick={() => navigate("/tickets?status=Resolved&period=thisMonth")} />
+      </div>
+      <DashboardTicketList title="最近服务工单" subtitle="点击可直接进入沟通详情" tickets={overview.recentTickets} onTicketClick={openTicket} hidePriority action={<button className="u-link-button" onClick={() => navigate("/tickets")}>查看全部</button>} />
+    </>
+  );
+}
+
+function SalesDashboard({ overview, navigate }: Omit<RoleDashboardProps, "openTicket">) {
+  return (
+    <>
+      <div className="u-kpi-grid u-kpi-grid-2">
+        <KpiCard title="我的客户" value={overview.salesCustomerCount} description="按客户资料中的商务负责人匹配" icon={<Users />} tone="blue" onClick={() => navigate("/customers")} />
+        <KpiCard title="客户软件绑定" value={overview.salesSoftwareCount} description="我的客户当前软件绑定数量" icon={<Boxes />} tone="purple" onClick={() => navigate("/customers")} />
+      </div>
+      <section className="u-panel u-info-panel">
+        <h3>销售工作台说明</h3>
+        <p>当前数据库的“商务负责人”仍然保存为姓名字符串，因此这里按你的显示名称精确匹配客户。后续如果要做正式的销售客户归属、转交和历史追踪，再单独设计 UserId 关联即可。</p>
+      </section>
+    </>
+  );
+}
+
+type RoleDashboardProps = {
+  overview: WorkOverview;
+  navigate: ReturnType<typeof useNavigate>;
+  openTicket: (ticket: DashboardTicket) => void;
+};
+
+function RankingPanel({ title, items, onClick }: { title: string; items: { id?: number | null; name: string; count: number }[]; onClick: (id: number) => void }) {
+  const max = Math.max(1, ...items.map((x) => x.count));
+  return (
+    <section className="u-panel">
+      <div className="u-panel-head"><div><h3>{title}</h3><p>点击项目直接查看对应工单</p></div></div>
+      <div className="u-ranking-list">
+        {items.length === 0 ? <div className="u-empty-state">暂无数据</div> : items.map((item, index) => (
+          <button key={`${item.id}-${item.name}`} type="button" className="u-ranking-row" disabled={!item.id} onClick={() => item.id && onClick(item.id)}>
+            <span className="u-rank-index">{index + 1}</span>
+            <span className="u-rank-name">{item.name}</span>
+            <span className="u-rank-bar"><i style={{ width: `${(item.count / max) * 100}%` }} /></span>
+            <strong>{item.count}</strong>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function formatRate(value?: number | null) {
+  return value === null || value === undefined ? "--" : `${value.toFixed(1)}%`;
+}
+
+function getDashboardTitle(role: string) {
+  switch (role) {
+    case "Admin": return "管理数据概览";
+    case "Support": return "售后工作台";
+    case "Developer": return "我的开发工作台";
+    case "Sales": return "客户运营工作台";
+    case "Customer": return "我的服务概览";
+    default: return "数据概览";
+  }
+}
+
+function getDashboardSubtitle(role: string, customerName: string | null) {
+  switch (role) {
+    case "Admin": return "关注平台运行、工单效率、SLA 风险和客户服务情况";
+    case "Support": return "先看未分诊和 SLA 风险，再处理分配给自己的客户问题";
+    case "Developer": return "只聚焦分配给你的开发问题和处理风险";
+    case "Sales": return "查看自己负责客户的服务与软件绑定概况";
+    case "Customer": return customerName ? `${customerName} · 软件与售后服务` : "查看软件与售后服务";
+    default: return "实时工作概览";
+  }
 }
 
 export default DashboardPage;

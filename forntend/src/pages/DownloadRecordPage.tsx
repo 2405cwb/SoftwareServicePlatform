@@ -1,405 +1,124 @@
 import { useCallback, useEffect, useState } from "react";
-
-import { Download, FileDown, RefreshCw } from "lucide-react";
-
+import { useSearchParams } from "react-router-dom";
+import { Download, FileDown, RefreshCw, Search, X } from "lucide-react";
 import { apiFetch } from "../services/api";
-import SearchBar from "../components/SearchBar";
+import { formatDateTime, formatFileSize } from "../utils/format";
 
-/*
- * 每页显示数量。
- */
 const PAGE_SIZE = 20;
 
-/*
- * 后端返回的单条下载记录。
- */
 interface DownloadRecordItem {
   id: number;
-
   userId: number | null;
-
   userName: string;
-
   userDisplayName: string;
-
   customerId: number | null;
-
   customerName: string;
-
   softwareId: number | null;
-
   softwareName: string;
-
   softwareVersionId: number | null;
-
   version: string;
-
   fileName: string;
-
   fileSize: number;
-
   downloadedAt: string;
 }
 
-/*
- * 后端分页返回结构。
- */
 interface DownloadRecordResponse {
   page: number;
-
   pageSize: number;
-
   total: number;
-
   totalPages: number;
-
   items: DownloadRecordItem[];
 }
 
 function DownloadRecordPage() {
-  /*
-   * 下载记录。
-   */
+  const [searchParams, setSearchParams] = useSearchParams();
   const [records, setRecords] = useState<DownloadRecordItem[]>([]);
-
-  /*
-   * 当前页。
-   */
-  const [page, setPage] = useState(1);
-
-  /*
-   * 总记录数。
-   */
+  const [page, setPage] = useState(Number(searchParams.get("page") || 1));
   const [total, setTotal] = useState(0);
-
-  /*
-   * 总页数。
-   */
   const [totalPages, setTotalPages] = useState(0);
-
-  /*
-   * 用户正在输入的关键字。
-   */
-  const [keyword, setKeyword] = useState("");
-
-  /*
-   * 真正发送给后端的关键字。
-   *
-   * 和 keyword 分开是为了做搜索防抖。
-   */
-  const [searchKeyword, setSearchKeyword] = useState("");
-
+  const [keyword, setKeyword] = useState(searchParams.get("keyword") ?? "");
+  const [searchKeyword, setSearchKeyword] = useState(searchParams.get("keyword") ?? "");
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const [errorMessage, setErrorMessage] = useState("");
-
-  /*
-   * ==========================================
-   * 查询下载记录
-   * ==========================================
-   */
-  const loadRecords = useCallback(async () => {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
+      setError("");
 
-      setErrorMessage("");
-
-      const params = new URLSearchParams();
-
+      const params = new URLSearchParams(searchParams);
       params.set("page", String(page));
-
       params.set("pageSize", String(PAGE_SIZE));
+      if (searchKeyword) params.set("keyword", searchKeyword);
+      else params.delete("keyword");
 
-      /*
-       * 有搜索关键字时才传 keyword。
-       */
-      if (searchKeyword) {
-        params.set("keyword", searchKeyword);
-      }
-
-      const response = await apiFetch(
-        `/api/download-records?${params.toString()}`,
-      );
-
-      if (!response.ok) {
-        const errorText = await response.text();
-
-        throw new Error(errorText || `加载下载记录失败：${response.status}`);
-      }
+      const response = await apiFetch(`/api/download-records?${params.toString()}`);
+      if (!response.ok) throw new Error(await response.text());
 
       const data = (await response.json()) as DownloadRecordResponse;
-
       setRecords(data.items);
-
       setTotal(data.total);
-
       setTotalPages(data.totalPages);
-    } catch (error) {
-      console.error("加载下载记录失败：", error);
-
-      setErrorMessage("加载下载记录失败，请稍后重试。");
+    } catch (e) {
+      console.error(e);
+      setError("加载下载记录失败，请稍后重试。");
     } finally {
       setLoading(false);
     }
-  }, [page, searchKeyword]);
+  }, [page, searchKeyword, searchParams]);
 
-  /*
-   * 页码、搜索条件变化后重新查询。
-   */
   useEffect(() => {
-    loadRecords();
-  }, [loadRecords]);
+    load();
+  }, [load]);
 
-  /*
-   * ==========================================
-   * 搜索防抖
-   * ==========================================
-   *
-   * 用户连续输入时不要每敲一个字
-   * 就立刻访问一次后端。
-   *
-   * 停止输入 350ms 后再搜索。
-   */
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      const value = keyword.trim();
+      setSearchKeyword(value);
       setPage(1);
-
-      setSearchKeyword(keyword.trim());
+      const next = new URLSearchParams(searchParams);
+      if (value) next.set("keyword", value);
+      else next.delete("keyword");
+      next.delete("page");
+      setSearchParams(next, { replace: true });
     }, 350);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
+    return () => window.clearTimeout(timer);
   }, [keyword]);
 
-  /*
-   * 文件大小格式化。
-   */
-  function formatFileSize(bytes: number) {
-    if (bytes <= 0) {
-      return "0 B";
-    }
-
-    const units = ["B", "KB", "MB", "GB", "TB"];
-
-    let value = bytes;
-
-    let unitIndex = 0;
-
-    while (value >= 1024 && unitIndex < units.length - 1) {
-      value /= 1024;
-
-      unitIndex++;
-    }
-
-    return `${value.toFixed(unitIndex === 0 ? 0 : 2)} ${units[unitIndex]}`;
+  function clearFilters() {
+    setKeyword("");
+    setSearchKeyword("");
+    setPage(1);
+    setSearchParams({}, { replace: true });
   }
 
-  /*
-   * UTC 时间转换成本地显示时间。
-   */
-  function formatDateTime(value: string) {
-    return new Date(value).toLocaleString("zh-CN", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-  }
+  const hasFilter = !!searchKeyword || searchParams.has("period") || searchParams.has("customerId") || searchParams.has("softwareId");
 
   return (
-    <div className="content download-record-page">
-      {/* ==========================================
-          页面标题
-          ========================================== */}
-      <div className="download-record-header">
-        <div>
-          <div className="download-record-title">
-            <Download size={24} />
-            下载记录
-          </div>
+    <div className="content u-page">
+      <header className="u-page-header">
+        <div><span className="u-eyebrow">DOWNLOAD AUDIT</span><h2>下载记录</h2><p>追踪客户、软件、版本和安装包的真实下载历史</p></div>
+        <button type="button" className="u-secondary-button" onClick={load} disabled={loading}><RefreshCw size={16} />刷新</button>
+      </header>
 
-          <div className="download-record-subtitle">
-            查看客户软件下载历史及版本使用情况
-          </div>
-        </div>
-
-        <button
-          type="button"
-          className="dashboard-refresh-button"
-          onClick={loadRecords}
-          disabled={loading}
-        >
-          <RefreshCw
-            size={16}
-            className={loading ? "dashboard-refresh-spin" : ""}
-          />
-
-          {loading ? "正在刷新" : "刷新"}
-        </button>
+      <div className="u-kpi-grid u-kpi-grid-2 u-download-summary-grid">
+        <div className="u-kpi-card"><div className="u-kpi-icon u-kpi-purple"><Download /></div><div className="u-kpi-copy"><div className="u-kpi-title">当前筛选记录</div><div className="u-kpi-value">{total}</div><div className="u-kpi-desc">支持从 Dashboard 带条件跳转</div></div></div>
+        <div className="u-kpi-card"><div className="u-kpi-icon u-kpi-blue"><FileDown /></div><div className="u-kpi-copy"><div className="u-kpi-title">当前页</div><div className="u-kpi-value">{page} / {Math.max(totalPages, 1)}</div><div className="u-kpi-desc">每页 {PAGE_SIZE} 条</div></div></div>
       </div>
 
-      {/* ==========================================
-          顶部统计
-          ========================================== */}
-      <div className="download-record-summary">
-        <div className="download-record-summary-icon">
-          <FileDown size={22} />
+      <section className="u-panel">
+        <div className="u-table-toolbar">
+          <div className="u-search-box"><Search size={17} /><input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="搜索客户、软件、版本、用户名或文件名" /></div>
+          {hasFilter && <button type="button" className="u-secondary-button" onClick={clearFilters}><X size={15} />清除筛选</button>}
         </div>
 
-        <div>
-          <div className="download-record-summary-label">下载记录总数</div>
+        {error && <div className="u-error-card">{error}</div>}
+        {loading ? <div className="u-empty-state">正在加载下载记录...</div> : records.length === 0 ? <div className="u-empty-state">暂无符合条件的下载记录</div> : (
+          <div className="u-table-scroll"><table className="u-data-table"><thead><tr><th>下载时间</th><th>客户</th><th>软件 / 版本</th><th>下载用户</th><th>文件</th><th>大小</th></tr></thead><tbody>{records.map((item) => <tr key={item.id}><td className="u-nowrap">{formatDateTime(item.downloadedAt)}</td><td><strong>{item.customerName || "-"}</strong></td><td><strong>{item.softwareName}</strong><small>{item.version}</small></td><td>{item.userDisplayName || item.userName || "-"}</td><td title={item.fileName}>{item.fileName}</td><td className="u-nowrap">{formatFileSize(item.fileSize)}</td></tr>)}</tbody></table></div>
+        )}
 
-          <div className="download-record-summary-value">{total}</div>
-        </div>
-      </div>
-
-      {/* ==========================================
-          搜索
-          ========================================== */}
-      <div className="download-record-toolbar">
-        <SearchBar
-          value={keyword}
-          placeholder="搜索客户、软件、版本、用户名或文件名"
-          onChange={setKeyword}
-          onClear={() => setKeyword("")}
-        />
-      </div>
-
-      {/* ==========================================
-          错误
-          ========================================== */}
-      {errorMessage && (
-        <div className="download-record-error">{errorMessage}</div>
-      )}
-
-      {/* ==========================================
-          下载记录表格
-          ========================================== */}
-      <div className="download-record-card">
-        <div className="download-record-table-wrapper">
-          <table className="download-record-table">
-            <thead>
-              <tr>
-                <th>客户</th>
-
-                <th>下载用户</th>
-
-                <th>软件</th>
-
-                <th>版本</th>
-
-                <th>文件</th>
-
-                <th>大小</th>
-
-                <th>下载时间</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {loading && records.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="download-record-empty">
-                    正在加载下载记录...
-                  </td>
-                </tr>
-              ) : records.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="download-record-empty">
-                    暂无下载记录
-                  </td>
-                </tr>
-              ) : (
-                records.map((record) => (
-                  <tr key={record.id}>
-                    <td>
-                      <div className="download-record-main-text">
-                        {record.customerName}
-                      </div>
-                    </td>
-
-                    <td>
-                      <div className="download-record-main-text">
-                        {record.userDisplayName || record.userName}
-                      </div>
-
-                      {record.userDisplayName && record.userName && (
-                        <div className="download-record-secondary-text">
-                          {record.userName}
-                        </div>
-                      )}
-                    </td>
-
-                    <td>
-                      <div className="download-record-main-text">
-                        {record.softwareName}
-                      </div>
-                    </td>
-
-                    <td>
-                      <span className="download-record-version">
-                        {record.version}
-                      </span>
-                    </td>
-
-                    <td>
-                      <div
-                        className="download-record-file-name"
-                        title={record.fileName}
-                      >
-                        {record.fileName}
-                      </div>
-                    </td>
-
-                    <td>{formatFileSize(record.fileSize)}</td>
-
-                    <td className="download-record-time">
-                      {formatDateTime(record.downloadedAt)}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* ======================================
-            分页
-            ====================================== */}
-        <div className="download-record-pagination">
-          <div className="download-record-pagination-info">
-            共 {total} 条
-            {totalPages > 0 && (
-              <>
-                ，第 {page} / {totalPages} 页
-              </>
-            )}
-          </div>
-
-          <div className="download-record-pagination-buttons">
-            <button
-              type="button"
-              className="normal-button"
-              disabled={page <= 1 || loading}
-              onClick={() => setPage((value) => value - 1)}
-            >
-              上一页
-            </button>
-
-            <button
-              type="button"
-              className="normal-button"
-              disabled={totalPages === 0 || page >= totalPages || loading}
-              onClick={() => setPage((value) => value + 1)}
-            >
-              下一页
-            </button>
-          </div>
-        </div>
-      </div>
+        {totalPages > 1 && <div className="u-pagination"><button disabled={page <= 1} onClick={() => setPage((x) => Math.max(1, x - 1))}>上一页</button><span>第 {page} / {totalPages} 页</span><button disabled={page >= totalPages} onClick={() => setPage((x) => Math.min(totalPages, x + 1))}>下一页</button></div>}
+      </section>
     </div>
   );
 }
