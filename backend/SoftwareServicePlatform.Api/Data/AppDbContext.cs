@@ -333,6 +333,59 @@ namespace SoftwareServicePlatform.Api.Data
                 .Property(x => x.Source)
                 .HasMaxLength(30)
                 .HasDefaultValue("Portal");
+
+
+            /*
+ * ==========================================
+ * DownloadRecord
+ * 软件安装包下载记录
+ * ==========================================
+ */
+
+
+            /*
+             * 下载用户。
+             *
+             * 用户以后即使删除，
+             * 也不能把历史下载记录一起删除。
+             *
+             * 所以使用 SetNull。
+             */
+            modelBuilder.Entity<DownloadRecord>()
+                .HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+
+            /*
+             * 下载记录所属客户。
+             */
+            modelBuilder.Entity<DownloadRecord>()
+                .HasOne(x => x.Customer)
+                .WithMany()
+                .HasForeignKey(x => x.CustomerId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+
+            /*
+             * 下载的是哪个软件。
+             */
+            modelBuilder.Entity<DownloadRecord>()
+                .HasOne(x => x.Software)
+                .WithMany()
+                .HasForeignKey(x => x.SoftwareId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+
+            /*
+             * 下载的是哪个软件版本。
+             */
+            modelBuilder.Entity<DownloadRecord>()
+                .HasOne(x => x.SoftwareVersion)
+                .WithMany()
+                .HasForeignKey(x => x.SoftwareVersionId)
+                .OnDelete(DeleteBehavior.SetNull);
         }
         public DbSet<Models.Customer> Customers { get; set; } = null!;
         public DbSet<Software> Softwares { get; set; }
@@ -368,5 +421,10 @@ namespace SoftwareServicePlatform.Api.Data
         public DbSet<SoftwareVersionAttachment>
             SoftwareVersionAttachments
         { get; set; }
+
+        /// <summary>
+        /// 软件安装包下载历史。
+        /// </summary>
+        public DbSet<DownloadRecord> DownloadRecords { get; set; }
     }
 }

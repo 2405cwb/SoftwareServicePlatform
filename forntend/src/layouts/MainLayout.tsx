@@ -9,6 +9,7 @@ import {
   TicketCheck,
   UserCog,
   PackageOpen,
+  Download,
 } from "lucide-react";
 /*
  * 当前登录用户的数据结构。
@@ -244,7 +245,13 @@ function MainLayout() {
               <span>版本管理</span>
             </NavLink>
           )}
+          {hasRole("Admin", "Support") && (
+            <NavLink to="/download-records" className="sidebar-menu-item">
+              <Download size={18} />
 
+              <span>下载记录</span>
+            </NavLink>
+          )}
           {hasRole("Admin", "Support", "Developer", "Customer") && (
             <NavLink to="/tickets" className="sidebar-menu-item">
               <TicketCheck size={18} />

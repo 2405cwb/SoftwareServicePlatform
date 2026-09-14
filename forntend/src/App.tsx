@@ -18,6 +18,7 @@ import MySoftwarePage from "./pages/MySoftwarePage";
 import UserPage from "./pages/UserPage";
 import TicketPage from "./pages/TicketPage";
 import DashboardPage from "./pages/DashboardPage";
+import DownloadRecordPage from "./pages/DownloadRecordPage";
 
 function App() {
   return (
@@ -95,6 +96,9 @@ function App() {
             <Route path="/dashboard" element={<DashboardPage />} />
           </Route>
 
+          <Route element={<RequireRole allowedRoles={["Admin", "Support"]} />}>
+            <Route path="/download-records" element={<DownloadRecordPage />} />
+          </Route>
           {/* =================================================
               客户管理
 
