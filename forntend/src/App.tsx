@@ -17,6 +17,7 @@ import ForbiddenPage from "./pages/ForbiddenPage";
 import MySoftwarePage from "./pages/MySoftwarePage";
 import UserPage from "./pages/UserPage";
 import TicketPage from "./pages/TicketPage";
+import DashboardPage from "./pages/DashboardPage";
 
 function App() {
   return (
@@ -83,6 +84,15 @@ function App() {
               ================================================= */}
           <Route element={<RequireRole allowedRoles={["Admin"]} />}>
             <Route path="/users" element={<UserPage />} />
+          </Route>
+
+          {/* =================================================
+    数据概览
+
+    Admin / Support
+    ================================================= */}
+          <Route element={<RequireRole allowedRoles={["Admin", "Support"]} />}>
+            <Route path="/dashboard" element={<DashboardPage />} />
           </Route>
 
           {/* =================================================

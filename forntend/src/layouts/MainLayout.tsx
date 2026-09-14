@@ -1,7 +1,15 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { getPlatformInfo } from "../services/platform";
-
+import {
+  LayoutDashboard,
+  Users,
+  Boxes,
+  GitBranch,
+  TicketCheck,
+  UserCog,
+  PackageOpen,
+} from "lucide-react";
 /*
  * 当前登录用户的数据结构。
  *
@@ -209,23 +217,54 @@ function MainLayout() {
       <div className="main-layout">
         {/* 左侧菜单 */}
         <div className="sidebar">
+          {hasRole("Admin", "Support") && (
+            <NavLink to="/dashboard" className="sidebar-menu-item">
+              <LayoutDashboard size={18} />
+              <span>数据概览</span>
+            </NavLink>
+          )}
+
           {hasRole("Admin", "Support", "Sales") && (
-            <NavLink to="/customers">客户管理</NavLink>
+            <NavLink to="/customers" className="sidebar-menu-item">
+              <Users size={18} />
+              <span>客户管理</span>
+            </NavLink>
           )}
 
           {hasRole("Admin", "Support", "Developer") && (
-            <NavLink to="/software">软件管理</NavLink>
+            <NavLink to="/software" className="sidebar-menu-item">
+              <Boxes size={18} />
+              <span>软件管理</span>
+            </NavLink>
           )}
 
           {hasRole("Admin", "Support", "Developer") && (
-            <NavLink to="/versions">版本管理</NavLink>
+            <NavLink to="/versions" className="sidebar-menu-item">
+              <GitBranch size={18} />
+              <span>版本管理</span>
+            </NavLink>
           )}
+
           {hasRole("Admin", "Support", "Developer", "Customer") && (
-            <NavLink to="/tickets">工单管理</NavLink>
+            <NavLink to="/tickets" className="sidebar-menu-item">
+              <TicketCheck size={18} />
+              <span>工单管理</span>
+            </NavLink>
           )}
 
-          {hasRole("Admin") && <NavLink to="/users">用户管理</NavLink>}
-          {hasRole("Customer") && <NavLink to="/my-software">我的软件</NavLink>}
+          {hasRole("Admin") && (
+            <NavLink to="/users" className="sidebar-menu-item">
+              <UserCog size={18} />
+              <span>用户管理</span>
+            </NavLink>
+          )}
+
+          {hasRole("Customer") && (
+            <NavLink to="/my-software" className="sidebar-menu-item">
+              <PackageOpen size={18} />
+              <span>我的软件</span>
+            </NavLink>
+          )}
         </div>
 
         {/* 右侧页面 */}

@@ -82,6 +82,32 @@
         /// </summary>
         public string Priority { get; set; } = "Normal";
 
+        /// <summary>
+        /// 工单来源。
+        ///
+        /// 当前约定：
+        ///
+        /// Portal
+        ///     客户通过平台自己提交
+        ///
+        /// WeChat
+        ///     客户通过微信反馈
+        ///
+        /// Phone
+        ///     电话反馈
+        ///
+        /// OnSite
+        ///     现场反馈
+        ///
+        /// Internal
+        ///     公司内部创建
+        ///
+        /// 暂时使用 string，
+        /// 后续增加来源类型时不需要修改数据库结构。
+        /// </summary>
+        public string Source { get; set; } = "Portal";
+
+
 
         // =====================================================
         // 客户
@@ -183,11 +209,58 @@
 
 
         /// <summary>
+        /// 首次响应时间。
+        ///
+        /// 指公司内部人员第一次真正回复客户的时间。
+        ///
+        /// 注意：
+        ///
+        /// 分配工单 ≠ 首次响应
+        ///
+        /// 内部备注 ≠ 首次响应
+        ///
+        /// Support / Developer / Admin
+        /// 第一次添加客户可见的处理记录时，
+        /// 才记录这个时间。
+        ///
+        /// 后面 Dashboard 可以计算：
+        ///
+        /// FirstResponseAt - CreatedAt
+        ///
+        /// 得到“首次响应耗时”。
+        /// </summary>
+        public DateTime? FirstResponseAt { get; set; }
+
+
+        /// <summary>
         /// 工单解决时间。
         ///
-        /// 尚未解决时为 null。
+        /// 工单进入 Resolved 时记录。
+        ///
+        /// 如果重新打开，
+        /// ResolvedAt 会被清空。
         /// </summary>
         public DateTime? ResolvedAt { get; set; }
+
+
+        /// <summary>
+        /// 工单真正关闭时间。
+        ///
+        /// Status 进入 Closed 时记录。
+        ///
+        /// 和 ResolvedAt 不一样：
+        ///
+        /// Resolved
+        ///     技术上已经解决
+        ///
+        /// Closed
+        ///     这个问题正式结束
+        ///
+        /// 后面可以计算整个工单生命周期：
+        ///
+        /// ClosedAt - CreatedAt
+        /// </summary>
+        public DateTime? ClosedAt { get; set; }
 
 
         /// <summary>

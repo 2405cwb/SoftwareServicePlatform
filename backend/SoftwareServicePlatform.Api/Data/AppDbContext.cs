@@ -318,6 +318,21 @@ namespace SoftwareServicePlatform.Api.Data
                 .HasForeignKey(x => x.UploadedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+
+            /*
+ * 工单来源。
+ *
+ * 当前默认：
+ *
+ * Portal
+ *
+ * 这样旧工单在增加 Source 字段以后，
+ * 也不会出现空字符串。
+ */
+            modelBuilder.Entity<Ticket>()
+                .Property(x => x.Source)
+                .HasMaxLength(30)
+                .HasDefaultValue("Portal");
         }
         public DbSet<Models.Customer> Customers { get; set; } = null!;
         public DbSet<Software> Softwares { get; set; }
