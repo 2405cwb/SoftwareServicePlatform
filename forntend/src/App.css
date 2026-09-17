@@ -5582,3 +5582,64 @@ tbody tr:hover {
 
   white-space: nowrap;
 }
+.package-upload-progress {
+  margin: 16px 0;
+}
+
+.package-upload-progress-info {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.package-upload-progress-track {
+  width: 100%;
+  height: 10px;
+  background: #e5e7eb;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.package-upload-progress-bar {
+  height: 100%;
+  background: #2563eb;
+  border-radius: 5px;
+  transition: width 0.2s ease;
+}
+
+.my-version-history-item {
+  padding: 16px 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.my-version-history-item:last-child {
+  border-bottom: none;
+}
+
+.my-version-history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.my-version-history-header strong {
+  font-size: 18px;
+}
+
+.published-customer-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 14px 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.published-customer-item:last-child {
+  border-bottom: none;
+}
+
+.published-customer-item > div:last-child {
+  text-align: right;
+}

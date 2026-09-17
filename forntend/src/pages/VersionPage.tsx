@@ -23,7 +23,33 @@ interface Software {
   // 软件是否允许下载
   allowDownload: boolean;
 }
+interface PublishedCustomer {
+  customerId: number;
 
+  name: string;
+
+  code: string;
+
+  province: string;
+
+  city: string;
+
+  publishedToCustomerAt: string;
+}
+
+interface PublishedCustomerResult {
+  versionId: number;
+
+  version: string;
+
+  versionType: string;
+
+  publishStatus: string;
+
+  customerCount: number;
+
+  customers: PublishedCustomer[];
+}
 /**
  * 软件版本信息。
  *
@@ -73,6 +99,17 @@ interface SoftwareVersion {
 
   // 安装包上传时间
   packageUploadedAt: string | null;
+
+  // Draft / Published / Deprecated
+  publishStatus: string;
+}
+
+interface PublishCustomer {
+  customerId: number;
+  name: string;
+  code: string;
+  province: string;
+  city: string;
 }
 /**
  * 软件版本附加资料。
@@ -187,11 +224,6 @@ function VersionPage() {
   const [releaseNotes, setReleaseNotes] = useState("");
 
   /**
-   * 是否已经发布
-   */
-  const [isPublished, setIsPublished] = useState(false);
-
-  /**
    * 是否强制升级
    */
   const [forceUpdate, setForceUpdate] = useState(false);
@@ -287,6 +319,29 @@ function VersionPage() {
   /**
    * 从后端加载软件列表
    */
+
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  const [isServerProcessing, setIsServerProcessing] = useState(false);
+
+  const [publishingVersion, setPublishingVersion] =
+    useState<SoftwareVersion | null>(null);
+
+  const [publishCustomers, setPublishCustomers] = useState<PublishCustomer[]>(
+    [],
+  );
+
+  const [publishToAll, setPublishToAll] = useState(true);
+
+  const [selectedCustomerIds, setSelectedCustomerIds] = useState<number[]>([]);
+
+  const [isPublishing, setIsPublishing] = useState(false);
+
+  const [publishedCustomerData, setPublishedCustomerData] =
+    useState<PublishedCustomerResult | null>(null);
+
+  const [publishedCustomerLoading, setPublishedCustomerLoading] =
+    useState(false);
   async function loadSoftwares() {
     try {
       const response = await apiFetch("/api/softwares");
@@ -300,6 +355,155 @@ function VersionPage() {
       setSoftwares(data);
     } catch (error) {
       console.error("获取软件列表失败：", error);
+    }
+  }
+
+  async function openPublishedCustomers(softwareVersion: SoftwareVersion) {
+    try {
+      setPublishedCustomerLoading(true);
+
+      /*
+       * 先给一个临时对象，
+       * 让弹窗立即打开并显示加载状态。
+       */
+      setPublishedCustomerData({
+        versionId: softwareVersion.id,
+
+        version: softwareVersion.version,
+
+        versionType: softwareVersion.versionType,
+
+        publishStatus: softwareVersion.publishStatus,
+
+        customerCount: 0,
+
+        customers: [],
+      });
+
+      const response = await apiFetch(
+        `/api/softwareversions/${softwareVersion.id}/published-customers`,
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+
+        throw new Error(errorText || `获取发布客户失败：${response.status}`);
+      }
+
+      const data = (await response.json()) as PublishedCustomerResult;
+
+      setPublishedCustomerData(data);
+    } catch (error) {
+      console.error("获取版本发布客户失败：", error);
+
+      alert("获取发布客户失败：" + String(error));
+
+      setPublishedCustomerData(null);
+    } finally {
+      setPublishedCustomerLoading(false);
+    }
+  }
+  function uploadPackageWithProgress(
+    softwareVersionId: number,
+    file: File,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      xhr.open("POST", `/api/softwareversions/${softwareVersionId}/package`);
+
+      /*
+       * 因为这里没有经过 apiFetch，
+       * JWT 要自己加。
+       */
+      const token = sessionStorage.getItem("access_token");
+
+      if (token) {
+        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      }
+
+      /*
+       * 上传进度事件
+       */
+      xhr.upload.onprogress = (event) => {
+        if (!event.lengthComputable) {
+          return;
+        }
+
+        const percent = Math.round((event.loaded / event.total) * 100);
+
+        setUploadProgress(percent);
+
+        /*
+         * 100% 表示浏览器已经把文件发给服务器，
+         * 但后端可能还在保存文件、计算 SHA256。
+         */
+        if (percent >= 100) {
+          setIsServerProcessing(true);
+        }
+      };
+
+      xhr.onload = () => {
+        setIsServerProcessing(false);
+
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve();
+        } else {
+          reject(new Error(xhr.responseText || `上传失败：${xhr.status}`));
+        }
+      };
+
+      xhr.onerror = () => {
+        setIsServerProcessing(false);
+
+        reject(new Error("网络错误，安装包上传失败"));
+      };
+
+      xhr.onabort = () => {
+        setIsServerProcessing(false);
+
+        reject(new Error("安装包上传已取消"));
+      };
+
+      xhr.send(formData);
+    });
+  }
+
+  async function openPublishDialog(softwareVersion: SoftwareVersion) {
+    try {
+      const response = await apiFetch(
+        `/api/softwareversions/${softwareVersion.id}/publish-customers`,
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+
+        throw new Error(errorText || `获取客户列表失败：${response.status}`);
+      }
+
+      const data = (await response.json()) as PublishCustomer[];
+
+      setPublishCustomers(data);
+
+      setPublishingVersion(softwareVersion);
+
+      /*
+       * Beta 只能指定客户。
+       */
+      if (softwareVersion.versionType === "Beta") {
+        setPublishToAll(false);
+      } else {
+        setPublishToAll(true);
+      }
+
+      setSelectedCustomerIds([]);
+    } catch (error) {
+      console.error("获取发布客户失败：", error);
+
+      alert("获取发布客户失败：" + String(error));
     }
   }
 
@@ -332,7 +536,6 @@ function VersionPage() {
     setVersionType("Release");
     setTitle("");
     setReleaseNotes("");
-    setIsPublished(false);
     setForceUpdate(false);
     setAllowDownload(true);
 
@@ -431,8 +634,6 @@ function VersionPage() {
 
       releaseNotes: releaseNotes.trim(),
 
-      isPublished: isPublished,
-
       forceUpdate: forceUpdate,
 
       allowDownload: allowDownload,
@@ -515,8 +716,6 @@ function VersionPage() {
 
     setReleaseNotes(softwareVersion.releaseNotes);
 
-    setIsPublished(softwareVersion.isPublished);
-
     setForceUpdate(softwareVersion.forceUpdate);
 
     setAllowDownload(softwareVersion.allowDownload);
@@ -555,49 +754,18 @@ function VersionPage() {
     try {
       setUploadingVersionId(softwareVersionId);
 
-      /**
-       * 创建 FormData
-       */
-      const formData = new FormData();
+      setUploadProgress(0);
+      setIsServerProcessing(false);
 
-      /**
-       * 后端参数名字叫 file，
-       * 所以前端这里必须叫 file。
-       */
-      formData.append("file", selectedPackage);
+      await uploadPackageWithProgress(softwareVersionId, selectedPackage);
 
-      const response = await apiFetch(
-        `/api/softwareversions/${softwareVersionId}/package`,
-        {
-          method: "POST",
-
-          /*
-           * 注意：
-           * FormData 不要手工设置
-           * Content-Type。
-           */
-          body: formData,
-        },
-      );
-
-      if (!response.ok) {
-        const errorText = await response.text();
-
-        throw new Error(errorText || `安装包上传失败：${response.status}`);
-      }
+      setUploadProgress(100);
 
       alert("安装包上传成功");
 
-      /**
-       * 清空上传状态
-       */
       setSelectedPackage(null);
-
       setSelectedUploadVersion(null);
 
-      /**
-       * 重新查询数据库
-       */
       await loadVersions();
     } catch (error) {
       console.error("上传安装包失败：", error);
@@ -605,17 +773,20 @@ function VersionPage() {
       alert("上传安装包失败：" + String(error));
     } finally {
       setUploadingVersionId(null);
+      setIsServerProcessing(false);
     }
   }
   /**
    * 打开安装包上传区域
    */
   function openPackageUpload(softwareVersion: SoftwareVersion) {
-    // 记录当前准备上传的是哪个版本
+    if (softwareVersion.publishStatus !== "Draft") {
+      alert("只有草稿版本可以上传或更换安装包");
+      return;
+    }
+
     setSelectedUploadVersion(softwareVersion);
 
-    // 每次重新打开时，
-    // 清空之前选择过的文件
     setSelectedPackage(null);
   }
 
@@ -645,7 +816,66 @@ function VersionPage() {
      * 加载这个版本已有的资料。
      */
     await loadVersionAttachments(softwareVersion.id);
-  } /**
+  }
+
+  async function confirmPublishVersion() {
+    if (publishingVersion === null) {
+      return;
+    }
+
+    if (!publishToAll && selectedCustomerIds.length === 0) {
+      alert("请选择至少一个发布客户");
+      return;
+    }
+
+    try {
+      setIsPublishing(true);
+
+      const response = await apiFetch(
+        `/api/softwareversions/${publishingVersion.id}/publish`,
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type": "application/json",
+          },
+
+          body: JSON.stringify({
+            publishToAll,
+            customerIds: selectedCustomerIds,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+
+        throw new Error(errorText || `发布失败：${response.status}`);
+      }
+
+      setPublishingVersion(null);
+
+      setPublishCustomers([]);
+
+      setSelectedCustomerIds([]);
+
+      await loadVersions();
+    } catch (error) {
+      console.error("发布版本失败：", error);
+
+      alert("发布版本失败：" + String(error));
+    } finally {
+      setIsPublishing(false);
+    }
+  }
+  function togglePublishCustomer(customerId: number) {
+    setSelectedCustomerIds((current) =>
+      current.includes(customerId)
+        ? current.filter((id) => id !== customerId)
+        : [...current, customerId],
+    );
+  }
+  /**
    * 查询某个版本已有的附加资料。
    */
   async function loadVersionAttachments(softwareVersionId: number) {
@@ -908,6 +1138,66 @@ function VersionPage() {
     }
   }
 
+  async function publishVersion(softwareVersion: SoftwareVersion) {
+    const confirmed = window.confirm(
+      `确定发布版本 ${softwareVersion.version} 吗？发布后将不能继续编辑。`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const response = await apiFetch(
+        `/api/softwareversions/${softwareVersion.id}/publish`,
+        {
+          method: "POST",
+        },
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+
+        throw new Error(errorText || `发布失败：${response.status}`);
+      }
+
+      await loadVersions();
+    } catch (error) {
+      console.error("发布版本失败：", error);
+
+      alert("发布版本失败：" + String(error));
+    }
+  }
+  async function deprecateVersion(softwareVersion: SoftwareVersion) {
+    const confirmed = window.confirm(
+      `确定停用版本 ${softwareVersion.version} 吗？停用后客户将不能继续下载。`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const response = await apiFetch(
+        `/api/softwareversions/${softwareVersion.id}/deprecate`,
+        {
+          method: "POST",
+        },
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+
+        throw new Error(errorText || `停用失败：${response.status}`);
+      }
+
+      await loadVersions();
+    } catch (error) {
+      console.error("停用版本失败：", error);
+
+      alert("停用版本失败：" + String(error));
+    }
+  }
   /**
    * 把字节转换成更容易阅读的文件大小。
    *
@@ -938,7 +1228,13 @@ function VersionPage() {
 
     return bytes + " B";
   }
+  function formatDate(dateText: string | null) {
+    if (!dateText) {
+      return "-";
+    }
 
+    return new Date(dateText).toLocaleString();
+  }
   /**
    * 下载某个软件版本的安装包
    */
@@ -1011,6 +1307,21 @@ function VersionPage() {
       software.allowDownload &&
       softwareVersion.allowDownload
     );
+  }
+  function getPublishStatusName(status: string) {
+    switch (status) {
+      case "Draft":
+        return "草稿";
+
+      case "Published":
+        return "已发布";
+
+      case "Deprecated":
+        return "已停用";
+
+      default:
+        return status;
+    }
   }
   return (
     <div className="content">
@@ -1107,6 +1418,28 @@ function VersionPage() {
         按钮
         ========================= */}
           <div className="form-buttons">
+            {uploadingVersionId !== null && (
+              <div className="package-upload-progress">
+                <div className="package-upload-progress-info">
+                  <span>
+                    {isServerProcessing
+                      ? "服务器正在处理安装包..."
+                      : "正在上传安装包"}
+                  </span>
+
+                  <span>{uploadProgress}%</span>
+                </div>
+
+                <div className="package-upload-progress-track">
+                  <div
+                    className="package-upload-progress-bar"
+                    style={{
+                      width: `${uploadProgress}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
             <button
               className="primary-button"
               disabled={uploadingVersionId === selectedUploadVersion.id}
@@ -1208,15 +1541,6 @@ function VersionPage() {
               <label>
                 <input
                   type="checkbox"
-                  checked={isPublished}
-                  onChange={(e) => setIsPublished(e.target.checked)}
-                />
-                已发布
-              </label>
-
-              <label>
-                <input
-                  type="checkbox"
                   checked={forceUpdate}
                   onChange={(e) => setForceUpdate(e.target.checked)}
                 />
@@ -1302,7 +1626,7 @@ function VersionPage() {
 
             <div>{version.title || "-"}</div>
 
-            <div>{version.isPublished ? "已发布" : "未发布"}</div>
+            <div>{getPublishStatusName(version.publishStatus)}</div>
 
             <div>{version.forceUpdate ? "是" : "否"}</div>
 
@@ -1331,28 +1655,63 @@ function VersionPage() {
               >
                 资料
               </button>
-              <button
-                className="edit-button"
-                onClick={() => editVersion(version)}
-              >
-                编辑
-              </button>
+              {version.publishStatus !== "Draft" && (
+                <button
+                  type="button"
+                  className="normal-button"
+                  onClick={() => void openPublishedCustomers(version)}
+                >
+                  查看发布客户
+                </button>
+              )}
+              {version.publishStatus === "Draft" && (
+                <button
+                  className="edit-button"
+                  onClick={() => editVersion(version)}
+                >
+                  编辑
+                </button>
+              )}
+              {version.publishStatus === "Draft" &&
+                version.versionType !== "Dev" && (
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={() => void openPublishDialog(version)}
+                  >
+                    发布
+                  </button>
+                )}
+
+              {version.publishStatus === "Published" && (
+                <button
+                  className="normal-button"
+                  onClick={() => void deprecateVersion(version)}
+                >
+                  停用
+                </button>
+              )}
 
               {/* 删除版本 */}
-              <ConfirmDeleteButton
-                message={`确定要删除版本 ${version.version} 吗？`}
-                onConfirm={() => deleteVersion(version.id)}
-              />
+
+              {version.publishStatus === "Draft" && (
+                <ConfirmDeleteButton
+                  message={`确定要删除版本 ${version.version} 吗？`}
+                  onConfirm={() => deleteVersion(version.id)}
+                />
+              )}
 
               {/* =========================
       选择安装包
       ========================= */}
-              <button
-                className="normal-button"
-                onClick={() => openPackageUpload(version)}
-              >
-                {version.packageFileName ? "更换安装包" : "上传安装包"}
-              </button>
+              {version.publishStatus === "Draft" && (
+                <button
+                  className="normal-button"
+                  onClick={() => openPackageUpload(version)}
+                >
+                  {version.packageFileName ? "更换安装包" : "上传安装包"}
+                </button>
+              )}
               {version.packageFileName && (
                 <button
                   className="normal-button"
@@ -1565,6 +1924,200 @@ function VersionPage() {
                 </table>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {publishingVersion && (
+        <div className="version-attachment-mask">
+          <div className="version-attachment-dialog">
+            <div className="version-attachment-header">
+              <div>
+                <h3>发布版本</h3>
+
+                <p>
+                  {getSoftwareName(publishingVersion.softwareId)}
+                  {" · "}
+                  {publishingVersion.version}
+                  {" · "}
+                  {publishingVersion.versionType}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="normal-button"
+                disabled={isPublishing}
+                onClick={() => setPublishingVersion(null)}
+              >
+                关闭
+              </button>
+            </div>
+
+            <div className="form-section">
+              <h4>发布范围</h4>
+
+              <label>
+                <input
+                  type="radio"
+                  checked={publishToAll}
+                  disabled={publishingVersion.versionType === "Beta"}
+                  onChange={() => setPublishToAll(true)}
+                />
+                全部授权客户 （{publishCustomers.length} 家）
+              </label>
+
+              <br />
+
+              <label>
+                <input
+                  type="radio"
+                  checked={!publishToAll}
+                  onChange={() => setPublishToAll(false)}
+                />
+                指定客户
+              </label>
+            </div>
+
+            {!publishToAll && (
+              <div className="form-section">
+                <h4>选择客户</h4>
+
+                {publishCustomers.length === 0 ? (
+                  <div className="empty">当前没有已授权客户</div>
+                ) : (
+                  publishCustomers.map((customer) => (
+                    <label
+                      key={customer.customerId}
+                      style={{
+                        display: "block",
+                        marginBottom: 10,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedCustomerIds.includes(
+                          customer.customerId,
+                        )}
+                        onChange={() =>
+                          togglePublishCustomer(customer.customerId)
+                        }
+                      />{" "}
+                      {customer.name}
+                      {" · "}
+                      {customer.code}
+                      {(customer.province || customer.city) && (
+                        <>
+                          {" · "}
+                          {customer.province}
+                          {customer.city}
+                        </>
+                      )}
+                    </label>
+                  ))
+                )}
+              </div>
+            )}
+
+            {publishingVersion.versionType === "Beta" && (
+              <div className="form-section">Beta 版本只能发布给指定客户。</div>
+            )}
+
+            <div className="form-buttons">
+              <button
+                className="primary-button"
+                disabled={isPublishing}
+                onClick={() => void confirmPublishVersion()}
+              >
+                {isPublishing ? "发布中..." : "确认发布"}
+              </button>
+
+              <button
+                className="normal-button"
+                disabled={isPublishing}
+                onClick={() => setPublishingVersion(null)}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {publishedCustomerData && (
+        <div className="version-attachment-mask">
+          <div className="version-attachment-dialog">
+            <div className="version-attachment-header">
+              <div>
+                <h3>版本发布客户</h3>
+
+                <p>
+                  {publishedCustomerData.version}
+                  {" · "}
+                  {publishedCustomerData.versionType}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="normal-button"
+                onClick={() => setPublishedCustomerData(null)}
+              >
+                关闭
+              </button>
+            </div>
+
+            {publishedCustomerLoading ? (
+              <div
+                style={{
+                  padding: "20px 0",
+                }}
+              >
+                正在加载发布客户...
+              </div>
+            ) : (
+              <>
+                <div
+                  style={{
+                    marginBottom: 16,
+                  }}
+                >
+                  已发布给
+                  <strong> {publishedCustomerData.customerCount} </strong>
+                  家客户
+                </div>
+
+                {publishedCustomerData.customers.length === 0 ? (
+                  <div className="empty">暂无发布客户记录</div>
+                ) : (
+                  <div>
+                    {publishedCustomerData.customers.map((customer) => (
+                      <div
+                        key={customer.customerId}
+                        className="published-customer-item"
+                      >
+                        <div>
+                          <strong>{customer.name}</strong>
+
+                          <div>{customer.code}</div>
+                        </div>
+
+                        <div>
+                          <div>
+                            {customer.province}
+                            {customer.city}
+                          </div>
+
+                          <div>
+                            发布于：
+                            {formatDate(customer.publishedToCustomerAt)}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
       )}

@@ -194,7 +194,27 @@ namespace SoftwareServicePlatform.Api.Controllers
 
                     .ToListAsync();
 
+            /*
+ * 查询当前客户真正被发布过的版本。
+ *
+ * SoftwareVersionCustomer 是版本发布范围快照：
+ * 只有出现在这里的版本，当前客户才可以看到。
+ */
+            var visibleVersionIds =
+                await _dbContext.SoftwareVersionCustomers
 
+                    .AsNoTracking()
+
+                    .Where(x =>
+                        x.CustomerId ==
+                        currentUser.CustomerId.Value
+                    )
+
+                    .Select(x =>
+                        x.SoftwareVersionId
+                    )
+
+                    .ToListAsync();
             /*
              * ==========================================
              * 4. 整理给前端的数据
@@ -217,12 +237,17 @@ namespace SoftwareServicePlatform.Api.Controllers
                             software.Versions
 
                                 .Where(
-                                    version =>
-                                        version.IsPublished
-                                        &&
-                                        version.VersionType
-                                        == "Release"
-                                )
+            version =>
+                version.IsPublished
+                &&
+                version.PublishStatus == "Published"
+                &&
+                version.VersionType != "Dev"
+                &&
+                visibleVersionIds.Contains(
+                    version.Id
+                )
+        )
 
                                 .OrderByDescending(
                                     version =>
@@ -287,7 +312,7 @@ namespace SoftwareServicePlatform.Api.Controllers
                                         latestVersion.Id,
 
                                         latestVersion.Version,
-
+                                        latestVersion.VersionType,
                                         latestVersion.Title,
 
                                         latestVersion.ReleaseNotes,
@@ -448,12 +473,14 @@ namespace SoftwareServicePlatform.Api.Controllers
                     .AsNoTracking()
 
                     .FirstOrDefaultAsync(
-                        x =>
-                            x.Id == versionId
-                            &&
-                            x.IsPublished
-                            &&
-                            x.VersionType == "Release"
+                     x =>
+    x.Id == versionId
+    &&
+    x.IsPublished
+    &&
+    x.PublishStatus == "Published"
+    &&
+    x.VersionType != "Dev"
                     );
 
 
@@ -463,7 +490,24 @@ namespace SoftwareServicePlatform.Api.Controllers
                     "软件版本不存在或尚未发布"
                 );
             }
+            /*
+ * 当前版本是否真的发布给了这个客户。
+ */
+            var hasVersionPermission =
+                await _dbContext.SoftwareVersionCustomers
 
+                    .AsNoTracking()
+
+                    .AnyAsync(x =>
+                        x.SoftwareVersionId == versionId
+                        &&
+                        x.CustomerId == customerId.Value
+                    );
+
+            if (!hasVersionPermission)
+            {
+                return Forbid();
+            }
 
             /*
              * 检查这个客户是否真的拥有
@@ -615,12 +659,14 @@ namespace SoftwareServicePlatform.Api.Controllers
 
                     .FirstOrDefaultAsync(
                         x =>
-                            x.Id ==
-                            attachment.SoftwareVersionId
-                            &&
-                            x.IsPublished
-                            &&
-                            x.VersionType == "Release"
+    x.Id ==
+    attachment.SoftwareVersionId
+    &&
+    x.IsPublished
+    &&
+    x.PublishStatus == "Published"
+    &&
+    x.VersionType != "Dev"
                     );
 
 
@@ -629,7 +675,23 @@ namespace SoftwareServicePlatform.Api.Controllers
                 return Forbid();
             }
 
+            var hasVersionPermission =
+    await _dbContext.SoftwareVersionCustomers
 
+        .AsNoTracking()
+
+        .AnyAsync(x =>
+            x.SoftwareVersionId ==
+                softwareVersion.Id
+            &&
+            x.CustomerId ==
+                customerId.Value
+        );
+
+            if (!hasVersionPermission)
+            {
+                return Forbid();
+            }
             /*
              * 再检查客户有没有这个软件授权。
              */
@@ -731,6 +793,162 @@ namespace SoftwareServicePlatform.Api.Controllers
 
                 enableRangeProcessing: true
             );
+        }
+
+        /// <summary>
+        /// 查询当前客户某个软件的版本历史。
+        ///
+        /// 只返回：
+        /// 1. 当前客户拥有的软件
+        /// 2. 曾经真正发布给这个客户的版本
+        /// 3. 不包含 Dev 内部版本
+        ///
+        /// GET:
+        /// /api/my-software/{softwareId}/versions
+        /// </summary>
+        [HttpGet("{softwareId:int}/versions")]
+        public async Task<IActionResult> GetSoftwareVersions(
+            int softwareId)
+        {
+            /*
+             * ==========================================
+             * 1. 获取当前登录客户
+             * ==========================================
+             */
+            var customerId =
+                await GetCurrentCustomerIdAsync();
+
+            if (!customerId.HasValue)
+            {
+                return Forbid();
+            }
+
+
+            /*
+             * ==========================================
+             * 2. 检查客户是否仍然拥有这个软件
+             * ==========================================
+             */
+            var customerSoftware =
+                await _dbContext.CustomerSoftwares
+
+                    .AsNoTracking()
+
+                    .Include(x => x.Software)
+
+                    .FirstOrDefaultAsync(x =>
+                        x.CustomerId == customerId.Value
+                        &&
+                        x.SoftwareId == softwareId
+                        &&
+                        x.IsEnabled
+                        &&
+                        x.Software != null
+                        &&
+                        x.Software.IsEnabled
+                    );
+
+
+            if (customerSoftware == null
+                ||
+                customerSoftware.Software == null)
+            {
+                return Forbid();
+            }
+
+
+            var software =
+                customerSoftware.Software;
+
+
+            /*
+             * ==========================================
+             * 3. 查询真正发布给当前客户的版本
+             * ==========================================
+             *
+             * 注意：
+             *
+             * 这里不是查询 SoftwareVersions 全表，
+             * 而是从 SoftwareVersionCustomers 开始查。
+             *
+             * 这样客户永远看不到：
+             *
+             * - 没发布给自己的 Beta
+             * - 其他客户专属版本
+             * - Draft
+             */
+            var versions =
+                await _dbContext.SoftwareVersionCustomers
+
+                    .AsNoTracking()
+
+                    .Where(x =>
+                        x.CustomerId == customerId.Value
+                        &&
+                        x.SoftwareVersion != null
+                        &&
+                        x.SoftwareVersion.SoftwareId ==
+                            softwareId
+                        &&
+                        x.SoftwareVersion.VersionType !=
+                            "Dev"
+                    )
+
+                    .OrderByDescending(x =>
+                        x.SoftwareVersion!.PublishedAt
+                        ??
+                        x.SoftwareVersion.CreatedAt
+                    )
+
+                    .ThenByDescending(x =>
+                        x.SoftwareVersion!.Id
+                    )
+
+                    .Select(x => new
+                    {
+                        x.SoftwareVersion!.Id,
+
+                        x.SoftwareVersion.Version,
+
+                        x.SoftwareVersion.VersionType,
+
+                        x.SoftwareVersion.PublishStatus,
+
+                        x.SoftwareVersion.Title,
+
+                        x.SoftwareVersion.ReleaseNotes,
+
+                        x.SoftwareVersion.PublishedAt,
+
+                        x.SoftwareVersion.ForceUpdate,
+
+                        x.SoftwareVersion.PackageFileName,
+
+                        x.SoftwareVersion.PackageFileSize,
+
+
+                        /*
+                         * 已停用版本也保留在历史记录里，
+                         * 但不能下载。
+                         */
+                        CanDownload =
+                            x.SoftwareVersion.PublishStatus
+                                == "Published"
+                            &&
+                            x.SoftwareVersion.IsPublished
+                            &&
+                            software.AllowDownload
+                            &&
+                            x.SoftwareVersion.AllowDownload
+                            &&
+                            x.SoftwareVersion
+                                .PackageRelativePath != ""
+                    })
+
+                    .ToListAsync();
+
+
+            return Ok(versions);
         }
     }
 }

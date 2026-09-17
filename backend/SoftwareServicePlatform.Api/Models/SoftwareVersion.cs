@@ -38,6 +38,17 @@
         /// </summary>
         public string ReleaseNotes { get; set; } = string.Empty;
 
+
+        /// <summary>
+        /// 版本发布状态。
+        ///
+        /// Draft      草稿
+        /// Published  已发布
+        /// Deprecated 已停用
+        /// </summary>
+        public string PublishStatus { get; set; } = "Draft";
+
+
         /// <summary>
         /// 是否已正式发布
         /// </summary>

@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SoftwareServicePlatform.Api.Data;
@@ -11,9 +12,11 @@ using SoftwareServicePlatform.Api.Data;
 namespace SoftwareServicePlatform.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260917060720_AddSoftwareVersionPublishStatus")]
+    partial class AddSoftwareVersionPublishStatus
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -452,33 +455,6 @@ namespace SoftwareServicePlatform.Api.Migrations
                     b.ToTable("SoftwareVersionAttachments");
                 });
 
-            modelBuilder.Entity("SoftwareServicePlatform.Api.Models.SoftwareVersionCustomer", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("CustomerId")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("SoftwareVersionId")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CustomerId");
-
-                    b.HasIndex("SoftwareVersionId", "CustomerId")
-                        .IsUnique();
-
-                    b.ToTable("SoftwareVersionCustomers");
-                });
-
             modelBuilder.Entity("SoftwareServicePlatform.Api.Models.Ticket", b =>
                 {
                     b.Property<int>("Id")
@@ -845,25 +821,6 @@ namespace SoftwareServicePlatform.Api.Migrations
                     b.Navigation("SoftwareVersion");
 
                     b.Navigation("UploadedByUser");
-                });
-
-            modelBuilder.Entity("SoftwareServicePlatform.Api.Models.SoftwareVersionCustomer", b =>
-                {
-                    b.HasOne("SoftwareServicePlatform.Api.Models.Customer", "Customer")
-                        .WithMany()
-                        .HasForeignKey("CustomerId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("SoftwareServicePlatform.Api.Models.SoftwareVersion", "SoftwareVersion")
-                        .WithMany()
-                        .HasForeignKey("SoftwareVersionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Customer");
-
-                    b.Navigation("SoftwareVersion");
                 });
 
             modelBuilder.Entity("SoftwareServicePlatform.Api.Models.Ticket", b =>

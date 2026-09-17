@@ -187,12 +187,22 @@ namespace SoftwareServicePlatform.Api.Controllers
 
 
             /*
-             * 客户门户只允许下载已经发布的 Release。
-             */
+    * 客户只允许下载：
+    *
+    * 1. 当前仍然处于 Published
+    * 2. 已正式发布
+    * 3. 不是 Dev 内部开发版本
+    *
+    * Release / Beta 都可能被客户下载，
+    * 但后面还要继续检查：
+    * 这个版本是否真的发布给当前客户。
+    */
             if (
                 !softwareVersion.IsPublished
                 ||
-                softwareVersion.VersionType != "Release"
+                softwareVersion.PublishStatus != "Published"
+                ||
+                softwareVersion.VersionType == "Dev"
             )
             {
                 return Forbid();
@@ -223,7 +233,31 @@ namespace SoftwareServicePlatform.Api.Controllers
             {
                 return Forbid();
             }
+            /*
+ * 再检查：
+ *
+ * 当前这个具体的软件版本，
+ * 是否真正发布给了当前客户。
+ *
+ * 仅仅拥有软件授权还不够。
+ */
+            var hasVersionPermission =
+                await _dbContext.SoftwareVersionCustomers
 
+                    .AsNoTracking()
+
+                    .AnyAsync(x =>
+                        x.SoftwareVersionId ==
+                            softwareVersion.Id
+                        &&
+                        x.CustomerId ==
+                            currentUser.CustomerId.Value
+                    );
+
+            if (!hasVersionPermission)
+            {
+                return Forbid();
+            }
 
             /*
              * ========================================
@@ -487,11 +521,12 @@ namespace SoftwareServicePlatform.Api.Controllers
                 return Forbid();
             }
 
-
             if (
                 !softwareVersion.IsPublished
                 ||
-                softwareVersion.VersionType != "Release"
+                softwareVersion.PublishStatus != "Published"
+                ||
+                softwareVersion.VersionType == "Dev"
             )
             {
                 return Forbid();
@@ -523,7 +558,29 @@ namespace SoftwareServicePlatform.Api.Controllers
             {
                 return Forbid();
             }
+            /*
+ * Ticket 生成之后，
+ * 版本发布范围也可能被改变。
+ *
+ * 所以真正发送文件前再次检查。
+ */
+            var hasVersionPermission =
+                await _dbContext.SoftwareVersionCustomers
 
+                    .AsNoTracking()
+
+                    .AnyAsync(x =>
+                        x.SoftwareVersionId ==
+                            softwareVersion.Id
+                        &&
+                        x.CustomerId ==
+                            currentUser.CustomerId.Value
+                    );
+
+            if (!hasVersionPermission)
+            {
+                return Forbid();
+            }
 
             /*
              * ========================================

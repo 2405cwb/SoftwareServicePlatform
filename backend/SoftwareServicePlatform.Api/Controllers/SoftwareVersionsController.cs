@@ -1,11 +1,12 @@
 ﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SoftwareServicePlatform.Api.Data;
 using SoftwareServicePlatform.Api.Models;
-using System.Security.Cryptography; 
+using SoftwareServicePlatform.Api.Services;
 using System.Security.Claims;
-using Microsoft.AspNetCore.Authorization;
+using System.Security.Cryptography; 
 namespace SoftwareServicePlatform.Api.Controllers
 {
     /// <summary>
@@ -21,13 +22,16 @@ namespace SoftwareServicePlatform.Api.Controllers
         private readonly AppDbContext _dbContext;
 
         private readonly IWebHostEnvironment _environment;
+
+        private readonly INotificationService _notificationService;
         /// <summary>
         /// 通过依赖注入获取数据库上下文
         /// </summary>
-        public SoftwareVersionsController(AppDbContext dbContext, IWebHostEnvironment environment)
+        public SoftwareVersionsController(AppDbContext dbContext, IWebHostEnvironment environment, INotificationService notificationService)
         {
             _dbContext = dbContext;
             _environment = environment;
+            _notificationService = notificationService;
         }
 
         /// <summary>
@@ -120,17 +124,11 @@ namespace SoftwareServicePlatform.Api.Controllers
                 );
             }
 
-            // 5. 如果用户勾选“已发布”，
-            // 自动记录发布时间
-            if (softwareVersion.IsPublished)
-            {
-                softwareVersion.PublishedAt =
-                    DateTime.UtcNow;
-            }
-            else
-            {
-                softwareVersion.PublishedAt = null;
-            }
+            // 新建版本永远从草稿开始。
+            // 发布必须走专门的 /publish 接口。
+            softwareVersion.PublishStatus = "Draft";
+            softwareVersion.IsPublished = false;
+            softwareVersion.PublishedAt = null;
 
             // 6. 创建时间和修改时间由服务器负责
             softwareVersion.CreatedAt =
@@ -161,12 +159,17 @@ namespace SoftwareServicePlatform.Api.Controllers
             var existingVersion =
                 await _dbContext.SoftwareVersions
                     .FindAsync(id);
-
+          
             if (existingVersion == null)
             {
                 return NotFound("软件版本不存在");
             }
-
+            if (existingVersion.PublishStatus != "Draft")
+            {
+                return BadRequest(
+                    "只有草稿状态的版本允许编辑"
+                );
+            }
             // 2. 检查软件ID
             if (softwareVersion.SoftwareId <= 0)
             {
@@ -185,7 +188,7 @@ namespace SoftwareServicePlatform.Api.Controllers
                 await _dbContext.Softwares.AnyAsync(
                     x => x.Id == softwareVersion.SoftwareId
                 );
-
+        
             if (!softwareExists)
             {
                 return BadRequest("所属软件不存在");
@@ -213,7 +216,7 @@ namespace SoftwareServicePlatform.Api.Controllers
                     "该软件已经存在相同版本号"
                 );
             }
-
+           
             // 6. 更新允许修改的字段
             existingVersion.SoftwareId =
                 softwareVersion.SoftwareId;
@@ -234,42 +237,10 @@ namespace SoftwareServicePlatform.Api.Controllers
                 softwareVersion.ForceUpdate;
 
             existingVersion.AllowDownload =
-                softwareVersion.AllowDownload;
-
-            /*
-             * 处理发布状态。
-             *
-             * 情况1：
-             * 原来未发布，现在改成发布
-             * -> 自动记录发布时间
-             *
-             * 情况2：
-             * 原来已经发布
-             * -> 保留原发布时间
-             *
-             * 情况3：
-             * 改成未发布
-             * -> 清空发布时间
-             */
-            if (softwareVersion.IsPublished)
-            {
-                if (!existingVersion.IsPublished)
-                {
-                    existingVersion.PublishedAt =
-                        DateTime.UtcNow;
-                }
-            }
-            else
-            {
-                existingVersion.PublishedAt = null;
-            }
-
-            existingVersion.IsPublished =
-                softwareVersion.IsPublished;
-
-            // 修改时间重新记录
-            existingVersion.UpdatedAt =
-                DateTime.UtcNow;
+                softwareVersion.AllowDownload; 
+           
+            //// 修改时间重新记录
+             existingVersion.UpdatedAt = DateTime.UtcNow;
 
             await _dbContext.SaveChangesAsync();
 
@@ -297,7 +268,24 @@ namespace SoftwareServicePlatform.Api.Controllers
             {
                 return NotFound("软件版本不存在");
             }
-
+            /*
+ * 只有 Draft 草稿版本允许删除。
+ *
+ * Published：
+ * 已经产生客户发布记录、通知、下载记录，
+ * 不能物理删除。
+ *
+ * Deprecated：
+ * 虽然已经停用，
+ * 但它仍然属于历史发布记录，
+ * 同样不能删除。
+ */
+            if (softwareVersion.PublishStatus != "Draft")
+            {
+                return BadRequest(
+                    "只有草稿版本允许删除，已发布或已停用版本必须保留历史记录"
+                );
+            }
             /*
              * 2. 计算这个版本对应的安装包目录。
              *
@@ -401,7 +389,12 @@ namespace SoftwareServicePlatform.Api.Controllers
             {
                 return NotFound("软件版本不存在");
             }
-
+            if (softwareVersion.PublishStatus != "Draft")
+            {
+                return BadRequest(
+                    "只有草稿版本可以上传或更换安装包"
+                );
+            }
             /*
              * 2. 检查文件
              */
@@ -899,9 +892,415 @@ public async Task<IActionResult> DownloadPackage(int id)
         downloadFileName,
         enableRangeProcessing: true
     );
-}
-    }
+        }
 
+        /// <summary>
+        /// 正式发布软件版本。
+        /// </summary>
+        [HttpPost("{id}/publish")]
+        [Authorize(Roles = "Admin,Developer")]
+        public async Task<IActionResult> PublishVersion(
+    int id,
+    [FromBody] PublishVersionRequest request)
+        {
+            var version =
+                await _dbContext.SoftwareVersions
+                    .Include(x => x.Software)
+                    .FirstOrDefaultAsync(x => x.Id == id);
+
+            if (version == null)
+            {
+                return NotFound("软件版本不存在");
+            }
+
+
+            /*
+             * 已经发布过，不能重复发布。
+             */
+            if (version.PublishStatus == "Published")
+            {
+                return BadRequest("该版本已经发布");
+            }
+
+
+            /*
+             * 已停用版本暂时不允许重新发布。
+             *
+             * 如果以后确实有“恢复版本”的业务，
+             * 再单独设计 Restore 接口。
+             */
+            if (version.PublishStatus == "Deprecated")
+            {
+                return BadRequest(
+                    "已停用版本不能重新发布"
+                );
+            }
+
+
+            /*
+             * 正式发布前必须已经上传安装包。
+             */
+            if (string.IsNullOrWhiteSpace(
+                    version.PackageRelativePath))
+            {
+                return BadRequest(
+                    "请先上传安装包再发布版本"
+                );
+            }
+
+
+            /*
+             * 再检查硬盘上的文件是否真实存在。
+             *
+             * 防止数据库里有路径，
+             * 但实际安装包被人为删除。
+             */
+            var packageFullPath =
+                Path.Combine(
+                    _environment.ContentRootPath,
+                    version.PackageRelativePath.Replace(
+                        '/',
+                        Path.DirectorySeparatorChar)
+                );
+
+            if (!System.IO.File.Exists(packageFullPath))
+            {
+                return BadRequest(
+                    "安装包文件不存在，请重新上传"
+                );
+            }
+            /*
+ * Dev 是内部开发版本，
+ * 不允许发布给客户。
+ */
+            if (version.VersionType == "Dev")
+            {
+                return BadRequest(
+                    "Dev 版本仅供内部使用，不能发布给客户"
+                );
+            }
+            if (
+version.VersionType == "Beta" &&
+request.PublishToAll)
+            {
+                return BadRequest(
+                    "Beta 版本只能发布给指定客户"
+                );
+            }
+            // 当前拥有该软件授权的客户
+            var authorizedCustomerIds =
+                await _dbContext.CustomerSoftwares
+                    .AsNoTracking()
+                    .Where(x =>
+                        x.SoftwareId == version.SoftwareId &&
+                        x.IsEnabled)
+                    .Select(x => x.CustomerId)
+                    .Distinct()
+                    .ToListAsync();
+
+            List<int> targetCustomerIds;
+
+            if (request.PublishToAll)
+            {
+                // 发布给全部授权客户
+                targetCustomerIds = authorizedCustomerIds;
+            }
+            else
+            {
+                // 指定发布时必须至少选一个客户
+                if (request.CustomerIds == null ||
+     request.CustomerIds.Count == 0)
+                {
+                    return BadRequest(
+                        "请选择至少一个发布客户"
+                    );
+                }
+
+                targetCustomerIds =
+                    request.CustomerIds
+                        .Distinct()
+                        .ToList();
+
+                // 检查有没有选到未授权客户
+                var invalidCustomerIds =
+                    targetCustomerIds
+                        .Except(authorizedCustomerIds)
+                        .ToList();
+
+                if (invalidCustomerIds.Count > 0)
+                {
+                    return BadRequest(
+                        "存在未授权使用该软件的客户"
+                    );
+                }
+            }
+
+           
+
+            var now = DateTime.UtcNow;
+
+            version.PublishStatus = "Published";
+
+            // 保留旧字段兼容现有客户门户。
+            version.IsPublished = true;
+
+            version.PublishedAt = now;
+
+            version.AllowDownload = true;
+
+            version.UpdatedAt = now; 
+
+            foreach (var customerId in targetCustomerIds)
+            {
+                _dbContext.SoftwareVersionCustomers.Add(
+                    new SoftwareVersionCustomer
+                    {
+                        SoftwareVersionId = version.Id,
+                        CustomerId = customerId,
+                        CreatedAt = DateTime.UtcNow
+                    });
+            }
+
+            /*
+ * 只通知本次真正发布到的客户用户。
+ */
+            var customerUserIds =
+    await _dbContext.Users
+        .AsNoTracking()
+        .Where(x =>
+            x.IsEnabled &&
+            x.Role == "Customer" &&
+            x.CustomerId.HasValue &&
+            targetCustomerIds.Contains(
+                x.CustomerId.Value))
+        .Select(x => x.Id)
+        .ToListAsync();
+
+            foreach (var userId in customerUserIds)
+            {
+                await _notificationService.AddAsync(
+                    userId: userId,
+                    type: "VersionPublished",
+                    title: "有新的软件版本发布",
+                    content:
+                        $"{version.Software!.Name} " +
+                        $"{version.Version} 已发布。",
+                    level:
+                        version.ForceUpdate
+                            ? "Warning"
+                            : "Info",
+                    targetUrl: "/my-software",
+                    dedupKey:
+                        $"version:{version.Id}:published"
+                );
+            }
+            await _dbContext.SaveChangesAsync();
+            await _notificationService.PushPendingAsync();
+            return NoContent();
+        }
+
+        /// <summary>
+        /// 停用已经发布的软件版本。
+        /// </summary>
+        [HttpPost("{id}/deprecate")]
+        [Authorize(Roles = "Admin,Developer")]
+        public async Task<IActionResult> DeprecateVersion(int id)
+        {
+            var version =
+                await _dbContext.SoftwareVersions
+                    .FindAsync(id);
+
+            if (version == null)
+            {
+                return NotFound("软件版本不存在");
+            }
+
+
+            if (version.PublishStatus != "Published")
+            {
+                return BadRequest(
+                    "只有已发布版本可以停用"
+                );
+            }
+
+
+            version.PublishStatus = "Deprecated";
+
+            /*
+             * 兼容现在 MySoftwareController
+             * 对 IsPublished 的判断。
+             */
+            version.IsPublished = false;
+
+            version.AllowDownload = false;
+
+            /*
+             * PublishedAt 不清空。
+             *
+             * 因为它表达的是：
+             * “这个版本曾经什么时候发布过”。
+             */
+            version.UpdatedAt = DateTime.UtcNow;
+
+
+            await _dbContext.SaveChangesAsync();
+
+            return Ok(version);
+        }
+
+        /// <summary>
+        /// 获取某个版本可以发布到的客户。
+        ///
+        /// 只返回：
+        /// 1. 当前仍启用的客户
+        /// 2. 已经授权使用该软件
+        /// 3. CustomerSoftware 绑定仍然有效
+        ///
+        /// GET /api/softwareversions/{id}/publish-customers
+        /// </summary>
+        [HttpGet("{id}/publish-customers")]
+        [Authorize(Roles = "Admin,Developer")]
+        public async Task<IActionResult> GetPublishCustomers(int id)
+        {
+            var version =
+                await _dbContext.SoftwareVersions
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(x => x.Id == id);
+
+            if (version == null)
+            {
+                return NotFound("软件版本不存在");
+            }
+
+            var customers =
+                await _dbContext.CustomerSoftwares
+                    .AsNoTracking()
+                    .Where(x =>
+                        x.SoftwareId == version.SoftwareId &&
+                        x.IsEnabled &&
+                        x.Customer != null &&
+                        x.Customer.IsEnabled)
+                    .Select(x => new
+                    {
+                        x.CustomerId,
+
+                        Name = x.Customer!.Name,
+
+                        Code = x.Customer.Code,
+
+                        Province = x.Customer.Province,
+
+                        City = x.Customer.City
+                    })
+                    .OrderBy(x => x.Name)
+                    .ToListAsync();
+
+            return Ok(customers);
+        }
+
+        /// <summary>
+        /// 查看某个软件版本已经发布给哪些客户。
+        ///
+        /// GET:
+        /// /api/softwareversions/{id}/published-customers
+        ///
+        /// 注意：
+        /// SoftwareVersionCustomers 是发布时保存的快照，
+        /// 即使以后版本 Deprecated，历史发布对象仍然保留。
+        /// </summary>
+        [HttpGet("{id}/published-customers")]
+        public async Task<IActionResult> GetPublishedCustomers(
+            int id)
+        {
+            /*
+             * 先确认版本存在。
+             */
+            var version =
+                await _dbContext.SoftwareVersions
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(
+                        x => x.Id == id
+                    );
+
+            if (version == null)
+            {
+                return NotFound(
+                    "软件版本不存在"
+                );
+            }
+
+
+            /*
+             * 查询这个版本真正发布过的客户。
+             */
+            var customers =
+                await _dbContext.SoftwareVersionCustomers
+
+                    .AsNoTracking()
+
+                    .Where(x =>
+                        x.SoftwareVersionId == id
+                    )
+
+                    .OrderBy(x =>
+                        x.Customer!.Name
+                    )
+
+                    .Select(x => new
+                    {
+                        x.CustomerId,
+
+                        Name =
+                            x.Customer!.Name,
+
+                        Code =
+                            x.Customer.Code,
+
+                        Province =
+                            x.Customer.Province,
+
+                        City =
+                            x.Customer.City,
+
+                        /*
+                         * 这个时间表示：
+                         * 该客户被加入这个版本发布范围的时间。
+                         */
+                        PublishedToCustomerAt =
+                            x.CreatedAt
+                    })
+
+                    .ToListAsync();
+
+
+            return Ok(new
+            {
+                VersionId = version.Id,
+
+                version.Version,
+
+                version.VersionType,
+
+                version.PublishStatus,
+
+                CustomerCount =
+                    customers.Count,
+
+                Customers =
+                    customers
+            });
+        }
+    }
+    public class PublishVersionRequest
+    {
+        /// <summary>
+        /// true：发布给该软件全部已授权客户
+        /// false：只发布给 CustomerIds
+        /// </summary>
+        public bool PublishToAll { get; set; } = true;
+
+        public List<int> CustomerIds { get; set; } = new();
+    }
 }
 
  

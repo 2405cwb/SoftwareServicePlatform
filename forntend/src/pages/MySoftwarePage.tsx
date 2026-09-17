@@ -27,7 +27,29 @@ interface LatestVersion {
 
   canDownload: boolean;
 }
+interface SoftwareVersionHistoryItem {
+  id: number;
 
+  version: string;
+
+  versionType: string;
+
+  publishStatus: string;
+
+  title: string;
+
+  releaseNotes: string;
+
+  publishedAt: string | null;
+
+  forceUpdate: boolean;
+
+  packageFileName: string;
+
+  packageFileSize: number;
+
+  canDownload: boolean;
+}
 /*
  * 客户可以看到的版本附件。
  *
@@ -110,6 +132,17 @@ function MySoftwarePage() {
    * 错误信息。
    */
   const [errorMessage, setErrorMessage] = useState("");
+
+  const [historySoftware, setHistorySoftware] = useState<MySoftware | null>(
+    null,
+  );
+
+  const [versionHistory, setVersionHistory] = useState<
+    SoftwareVersionHistoryItem[]
+  >([]);
+
+  const [historyLoading, setHistoryLoading] = useState(false);
+
   /*
    * ======================================
    * 加载某个版本的客户可见资料
@@ -151,6 +184,71 @@ function MySoftwarePage() {
       }));
     }
   }
+  function getVersionTypeName(versionType: string) {
+    switch (versionType) {
+      case "Release":
+        return "正式版";
+
+      case "Beta":
+        return "测试版";
+
+      case "Dev":
+        return "开发版";
+
+      default:
+        return versionType;
+    }
+  }
+
+  function getPublishStatusName(status: string) {
+    switch (status) {
+      case "Published":
+        return "已发布";
+
+      case "Deprecated":
+        return "已停用";
+
+      case "Draft":
+        return "草稿";
+
+      default:
+        return status;
+    }
+  }
+
+  /*打开历史版本 */
+  async function openVersionHistory(software: MySoftware) {
+    try {
+      setHistorySoftware(software);
+
+      setVersionHistory([]);
+
+      setHistoryLoading(true);
+
+      const response = await apiFetch(
+        `/api/my-software/${software.softwareId}/versions`,
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+
+        throw new Error(errorText || `获取版本历史失败：${response.status}`);
+      }
+
+      const data = (await response.json()) as SoftwareVersionHistoryItem[];
+
+      setVersionHistory(data);
+    } catch (error) {
+      console.error("获取版本历史失败：", error);
+
+      alert("获取版本历史失败：" + String(error));
+
+      setHistorySoftware(null);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
   /*
    * ======================================
    * 加载当前客户的软件
@@ -507,7 +605,20 @@ function MySoftwarePage() {
                       ================================ */}
               <div className="my-version-area">
                 {software.latestVersion === null ? (
-                  <div className="my-version-empty">暂无已发布的正式版本</div>
+                  <div className="my-version-empty">
+                    <div className="my-version-empty">
+                      当前暂无可用版本
+                      <div style={{ marginTop: 12 }}>
+                        <button
+                          type="button"
+                          className="normal-button"
+                          onClick={() => void openVersionHistory(software)}
+                        >
+                          查看历史版本
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 ) : (
                   <>
                     <div className="my-version-header">
@@ -568,6 +679,13 @@ function MySoftwarePage() {
                         {software.latestVersion.canDownload
                           ? "下载安装包"
                           : "暂不可下载"}
+                      </button>
+                      <button
+                        type="button"
+                        className="normal-button"
+                        onClick={() => void openVersionHistory(software)}
+                      >
+                        历史版本
                       </button>
                     </div>
 
@@ -632,6 +750,100 @@ function MySoftwarePage() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {historySoftware && (
+        <div className="version-attachment-mask">
+          <div className="version-attachment-dialog">
+            <div className="version-attachment-header">
+              <div>
+                <h3>历史版本</h3>
+
+                <p>
+                  {historySoftware.softwareName}
+                  {" · "}
+                  {historySoftware.softwareCode}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="normal-button"
+                onClick={() => setHistorySoftware(null)}
+              >
+                关闭
+              </button>
+            </div>
+
+            {historyLoading ? (
+              <div className="my-software-message">正在加载历史版本...</div>
+            ) : versionHistory.length === 0 ? (
+              <div className="my-software-empty">暂无历史版本</div>
+            ) : (
+              <div>
+                {versionHistory.map((version) => (
+                  <div key={version.id} className="my-version-history-item">
+                    <div className="my-version-history-header">
+                      <div>
+                        <strong>{version.version}</strong>
+
+                        <span> {getVersionTypeName(version.versionType)}</span>
+                      </div>
+
+                      <span>{getPublishStatusName(version.publishStatus)}</span>
+                    </div>
+
+                    <div>{version.title || "暂无版本标题"}</div>
+
+                    <div className="my-version-notes">
+                      {version.releaseNotes || "暂无更新说明"}
+                    </div>
+
+                    <div className="my-version-meta">
+                      <span>
+                        发布时间：
+                        {formatDate(version.publishedAt)}
+                      </span>
+
+                      {version.packageFileName && (
+                        <span>
+                          安装包：
+                          {version.packageFileName}
+                        </span>
+                      )}
+
+                      {version.packageFileSize > 0 && (
+                        <span>
+                          大小：
+                          {formatFileSize(version.packageFileSize)}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="my-version-actions">
+                      <button
+                        type="button"
+                        className="primary-button"
+                        disabled={!version.canDownload}
+                        onClick={() => downloadPackage(version.id)}
+                      >
+                        {version.canDownload
+                          ? "下载安装包"
+                          : version.publishStatus === "Deprecated"
+                            ? "版本已停用"
+                            : "暂不可下载"}
+                      </button>
+
+                      {version.forceUpdate && (
+                        <span className="force-update-badge">强制升级</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
