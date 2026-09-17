@@ -496,6 +496,26 @@ namespace SoftwareServicePlatform.Api.Data
                     x.IsRead,
                     x.CreatedAt
                 });
+
+            modelBuilder.Entity<SoftwareVersionCustomer>()
+    .HasOne(x => x.SoftwareVersion)
+    .WithMany()
+    .HasForeignKey(x => x.SoftwareVersionId)
+    .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<SoftwareVersionCustomer>()
+                .HasOne(x => x.Customer)
+                .WithMany()
+                .HasForeignKey(x => x.CustomerId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<SoftwareVersionCustomer>()
+                .HasIndex(x => new
+                {
+                    x.SoftwareVersionId,
+                    x.CustomerId
+                })
+                .IsUnique();
         }
         public DbSet<Models.Customer> Customers { get; set; } = null!;
         public DbSet<Software> Softwares { get; set; }
@@ -546,5 +566,11 @@ namespace SoftwareServicePlatform.Api.Data
         /// 站内通知。
         /// </summary>
         public DbSet<Notification> Notifications { get; set; } = null!;
+
+        /// <summary>
+        /// 软件版本与客户发布范围关系。
+        /// </summary>
+        public DbSet<SoftwareVersionCustomer> SoftwareVersionCustomers
+        { get; set; } = null!;
     }
 }
