@@ -1,9 +1,10 @@
-using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SoftwareServicePlatform.Api.Data;
 using SoftwareServicePlatform.Api.Models;
+using SoftwareServicePlatform.Api.Services;
+using System.Security.Claims;
 
 namespace SoftwareServicePlatform.Api.Controllers;
 
@@ -19,7 +20,7 @@ namespace SoftwareServicePlatform.Api.Controllers;
 public class TicketWorkflowController : ControllerBase
 {
     private readonly AppDbContext _dbContext;
-
+    private readonly INotificationService _notificationService;
     private static readonly string[] Priorities =
     {
         "Low", "Normal", "High", "Urgent"
@@ -30,9 +31,10 @@ public class TicketWorkflowController : ControllerBase
         "WeChat", "Phone", "Email", "OnSite", "Internal"
     };
 
-    public TicketWorkflowController(AppDbContext dbContext)
+    public TicketWorkflowController(AppDbContext dbContext, INotificationService notificationService)
     {
         _dbContext = dbContext;
+        _notificationService = notificationService;
     }
 
     /// <summary>
@@ -220,10 +222,28 @@ public class TicketWorkflowController : ControllerBase
                 IsInternal = false,
                 CreatedAt = now
             });
+
+            await _notificationService.AddAsync(
+                    userId: assignee.Id,
+                    type: "TicketAssigned",
+                    title: "有新的工单分配给你",
+                    content:
+                        $"工单 {ticket.TicketNo} 已分配给你：{ticket.Title}",
+                    level:
+                        priority == "Urgent"
+                            ? "Danger"
+                            : priority == "High"
+                                ? "Warning"
+                                : "Info",
+                    targetUrl:
+                        $"/tickets?ticketId={ticket.Id}",
+                    dedupKey:
+                    null
+            );
         }
 
         await _dbContext.SaveChangesAsync();
-
+        await _notificationService.PushPendingAsync();
         return StatusCode(StatusCodes.Status201Created, new
         {
             message = "工单创建成功",
@@ -331,10 +351,28 @@ public class TicketWorkflowController : ControllerBase
                 IsInternal = false,
                 CreatedAt = now
             });
+
+            await _notificationService.AddAsync(
+                    userId: assignee.Id,
+                    type: "TicketAssigned",
+                    title: "有新的工单分配给你",
+                    content:
+                        $"工单 {ticket.TicketNo} 已分配给你：{ticket.Title}",
+                    level:
+                        ticket.Priority == "Urgent"
+                            ? "Danger"
+                            : ticket.Priority == "High"
+                                ? "Warning"
+                                : "Info",
+                    targetUrl:
+                        $"/tickets?ticketId={ticket.Id}",
+                    dedupKey:
+                             null
+);
         }
 
         await _dbContext.SaveChangesAsync();
-
+        await _notificationService.PushPendingAsync();
         return Ok(new
         {
             message = "工单分诊完成",

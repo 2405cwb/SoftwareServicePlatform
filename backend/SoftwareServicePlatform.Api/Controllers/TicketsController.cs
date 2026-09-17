@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using SoftwareServicePlatform.Api.Data;
 using SoftwareServicePlatform.Api.Dtos.Tickets;
 using SoftwareServicePlatform.Api.Models;
+using SoftwareServicePlatform.Api.Services;
 using System.Security.Claims;
 
 namespace SoftwareServicePlatform.Api.Controllers
@@ -17,12 +18,13 @@ namespace SoftwareServicePlatform.Api.Controllers
     public class TicketsController : ControllerBase
     {
         private readonly AppDbContext _dbContext;
-
+        private readonly INotificationService _notificationService;
 
         public TicketsController(
-            AppDbContext dbContext)
+            AppDbContext dbContext, INotificationService notificationService)
         {
             _dbContext = dbContext;
+            _notificationService = notificationService;
         }
 
 
@@ -549,7 +551,57 @@ namespace SoftwareServicePlatform.Api.Controllers
             ticket.UpdatedAt =
                 DateTime.UtcNow;
 
+            /*
+  * ==========================================
+  * 新工单通知售后
+  * ==========================================
+  *
+  * Customer 在门户提交新工单后，
+  * 所有当前启用的 Support 用户
+  * 都应该收到一条站内通知。
+  */
 
+            var supportUserIds =
+                await _dbContext.Users
+
+                    .AsNoTracking()
+
+                    .Where(
+                        x =>
+                            x.IsEnabled
+                            &&
+                            x.Role == "Support"
+                    )
+
+                    .Select(
+                        x => x.Id
+                    )
+
+                    .ToListAsync();
+
+
+            foreach (var supportUserId in supportUserIds)
+            {
+                await _notificationService.AddAsync(
+                    userId: supportUserId,
+
+                    type: "TicketCreated",
+
+                    title: "收到新的客户工单",
+
+                    content:
+                        $"{customer.Name}提交了工单 " +
+                        $"{ticket.TicketNo}：{ticket.Title}",
+
+                    level: "Info",
+
+                    targetUrl:
+                        $"/tickets?ticketId={ticket.Id}",
+
+                    dedupKey:
+                        $"ticket:{ticket.Id}:created:support:{supportUserId}"
+                );
+            }
             /*
              * ==========================================
              * 15. 第二次保存正式工单编号
@@ -558,7 +610,7 @@ namespace SoftwareServicePlatform.Api.Controllers
 
             await _dbContext.SaveChangesAsync();
 
-
+            await _notificationService.PushPendingAsync();
             /*
              * ==========================================
              * 16. 返回前端
@@ -1727,19 +1779,115 @@ namespace SoftwareServicePlatform.Api.Controllers
                 };
 
 
+            _dbContext.TicketRecords.Add(
+     record
+ );
+
+
             /*
              * ==========================================
-             * 8. 保存
+             * 回复通知
              * ==========================================
              */
 
-            _dbContext.TicketRecords.Add(
-                record
-            );
+            // 客户回复公司人员
+            if (currentUser.Role == "Customer")
+            {
+                /*
+                 * 已经有处理人：
+                 * 直接通知当前处理人。
+                 */
+                if (ticket.AssignedToUserId.HasValue)
+                {
+                    await _notificationService.AddAsync(
+                        userId: ticket.AssignedToUserId.Value,
+                        type: "TicketReply",
+                        title: "客户回复了工单",
+                        content:
+                            $"{currentUser.DisplayName}回复了工单 " +
+                            $"{ticket.TicketNo}：{ticket.Title}",
+                        level: "Info",
+                        targetUrl:
+                            $"/tickets?ticketId={ticket.Id}",
+                        dedupKey: null
+                    );
+                }
+                else
+                {
+                    /*
+                     * 工单尚未分配：
+                     * 通知所有启用的售后人员。
+                     */
+                    var supportUserIds =
+                        await _dbContext.Users
+                            .AsNoTracking()
+                            .Where(x =>
+                                x.IsEnabled
+                                &&
+                                x.Role == "Support")
+                            .Select(x => x.Id)
+                            .ToListAsync();
+
+
+                    foreach (var supportUserId in supportUserIds)
+                    {
+                        await _notificationService.AddAsync(
+                            userId: supportUserId,
+                            type: "TicketReply",
+                            title: "客户回复了未分配工单",
+                            content:
+                                $"{currentUser.DisplayName}回复了工单 " +
+                                $"{ticket.TicketNo}：{ticket.Title}",
+                            level: "Info",
+                            targetUrl:
+                                $"/tickets?ticketId={ticket.Id}",
+                            dedupKey: null
+                        );
+                    }
+                }
+            }
+
+
+            /*
+             * 公司人员公开回复客户。
+             *
+             * 内部备注绝对不能通知客户。
+             */
+            else if (!request.IsInternal)
+            {
+                var customerUserIds =
+                    await _dbContext.Users
+                        .AsNoTracking()
+                        .Where(x =>
+                            x.IsEnabled
+                            &&
+                            x.Role == "Customer"
+                            &&
+                            x.CustomerId == ticket.CustomerId)
+                        .Select(x => x.Id)
+                        .ToListAsync();
+
+
+                foreach (var customerUserId in customerUserIds)
+                {
+                    await _notificationService.AddAsync(
+                        userId: customerUserId,
+                        type: "TicketReply",
+                        title: "您的工单有新的回复",
+                        content:
+                            $"{currentUser.DisplayName}回复了工单 " +
+                            $"{ticket.TicketNo}：{ticket.Title}",
+                        level: "Info",
+                        targetUrl:
+                            $"/tickets?ticketId={ticket.Id}",
+                        dedupKey: null
+                    );
+                }
+            }
 
 
             await _dbContext.SaveChangesAsync();
-
+            await _notificationService.PushPendingAsync();
 
             /*
              * ==========================================
@@ -2297,7 +2445,12 @@ namespace SoftwareServicePlatform.Api.Controllers
             _dbContext.TicketRecords.Add(
                 record
             );
-
+            await NotifyCustomerUsersAsync(
+    ticket,
+    "TicketResolved",
+    "您的工单已解决",
+    $"工单 {ticket.TicketNo} 已由 {currentUser.DisplayName} 标记为已解决。"
+);
 
             /*
              * ==========================================
@@ -2314,7 +2467,7 @@ namespace SoftwareServicePlatform.Api.Controllers
              */
 
             await _dbContext.SaveChangesAsync();
-
+            await _notificationService.PushPendingAsync();
 
             /*
              * ==========================================
@@ -2635,7 +2788,12 @@ namespace SoftwareServicePlatform.Api.Controllers
             _dbContext.TicketRecords.Add(
                 record
             );
-
+            await NotifyCustomerUsersAsync(
+    ticket,
+    "TicketClosed",
+    "您的工单已关闭",
+    $"工单 {ticket.TicketNo} 已关闭。"
+);
 
             /*
              * ==========================================
@@ -2943,7 +3101,13 @@ namespace SoftwareServicePlatform.Api.Controllers
             _dbContext.TicketRecords.Add(
                 record
             );
-
+            await NotifyCustomerUsersAsync(
+    ticket,
+    "TicketReopened",
+    "您的工单已重新打开",
+    $"工单 {ticket.TicketNo} 已重新进入处理中。",
+    "Warning"
+);
 
             /*
              * ==========================================
@@ -3065,6 +3229,37 @@ namespace SoftwareServicePlatform.Api.Controllers
                 _ =>
                     role
             };
+        }
+
+
+        private async Task NotifyCustomerUsersAsync(
+    Ticket ticket,
+    string type,
+    string title,
+    string content,
+    string level = "Info")
+        {
+            var userIds = await _dbContext.Users
+                .AsNoTracking()
+                .Where(x =>
+                    x.IsEnabled &&
+                    x.Role == "Customer" &&
+                    x.CustomerId == ticket.CustomerId)
+                .Select(x => x.Id)
+                .ToListAsync();
+
+            foreach (var userId in userIds)
+            {
+                await _notificationService.AddAsync(
+                    userId: userId,
+                    type: type,
+                    title: title,
+                    content: content,
+                    level: level,
+                    targetUrl: $"/tickets?ticketId={ticket.Id}",
+                    dedupKey: null
+                );
+            }
         }
     }
 }

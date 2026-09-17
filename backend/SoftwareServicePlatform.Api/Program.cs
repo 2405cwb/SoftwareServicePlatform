@@ -4,7 +4,9 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using SoftwareServicePlatform.Api.Data;
+using SoftwareServicePlatform.Api.Hubs;
 using SoftwareServicePlatform.Api.Models;
+using SoftwareServicePlatform.Api.Services;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -23,8 +25,17 @@ builder.Services.AddControllers();
 builder.Services.AddMemoryCache();
 
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
-
 /*
+ * 站内通知服务。
+ */
+builder.Services.AddScoped< INotificationService, NotificationService>();
+
+builder.Services.AddHostedService<
+    SlaNotificationBackgroundService>();
+
+builder.Services.AddSignalR();
+/*
+ 
  * 客户门户工单入口保护：
  * 即使客户手工构造 HTTP 请求传 Urgent，也会在 EF 保存前强制进入待分诊。
  */
@@ -64,6 +75,28 @@ builder.Services
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
             ClockSkew = TimeSpan.FromMinutes(1)
         };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken =
+                    context.Request.Query["access_token"];
+
+                var path =
+                    context.HttpContext.Request.Path;
+
+                if (!string.IsNullOrEmpty(accessToken)
+                    &&
+                    path.StartsWithSegments(
+                        "/hubs/notifications"))
+                {
+                    context.Token = accessToken;
+                }
+
+                return Task.CompletedTask;
+            }
+        };
     });
 
 builder.Services.AddAuthorization();
@@ -89,5 +122,6 @@ if (app.Environment.IsDevelopment())
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
-
+app.MapHub<NotificationHub>(
+    "/hubs/notifications");
 app.Run();
