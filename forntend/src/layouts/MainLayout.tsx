@@ -66,15 +66,61 @@ function MainLayout() {
         void refreshNotifications();
       }
     });
-    connection.on("NotificationCreated", (notification: NotificationItem) => {
-      /*
-       * 实时增加未读数量。
-       */
-      setUnreadCount((count) => count + 1);
+
+    connection.onreconnecting(() => {
+      console.warn("SignalR 通知连接正在重新连接...");
+    });
+
+    connection.onreconnected(() => {
+      console.log("SignalR 通知连接已恢复");
 
       /*
-       * 如果通知面板已经加载过，
-       * 直接把新通知插到最前面。
+       * 重连期间可能已经产生了通知，
+       * 所以必须重新向服务器同步。
+       */
+      void refreshUnreadCount();
+
+      if (notificationOpen) {
+        void refreshNotifications();
+      }
+    });
+
+    connection.onclose((error) => {
+      console.error("SignalR 通知连接已关闭：", error);
+    });
+    connection.on("NotificationCreated", (notification: NotificationItem) => {
+      /*
+       * 调试阶段先保留。
+       *
+       * 新工单创建后，
+       * 售后浏览器控制台应该立刻看到这一行。
+       */
+      console.log("收到实时通知：", notification);
+
+      /*
+       * ==========================================
+       * 同步真实未读数量
+       * ==========================================
+       *
+       * 原来只是：
+       *
+       * setUnreadCount(count => count + 1)
+       *
+       * 理论上可以工作，
+       * 但存在几个问题：
+       *
+       * 1. SignalR 重连期间可能漏通知
+       * 2. 多标签页可能导致本地计数不同步
+       * 3. 之前状态已经错误时继续 +1 会越来越偏
+       *
+       * 所以收到实时事件以后，
+       * 直接向后端查询真实未读数更稳。
+       */
+      void refreshUnreadCount();
+
+      /*
+       * 如果通知列表当前已经存在于内存中，
+       * 直接把新通知放到最前面。
        */
       setNotifications((items) => {
         if (items.some((item) => item.id === notification.id)) {
@@ -85,16 +131,62 @@ function MainLayout() {
       });
     });
 
-    connection
-      .start()
-      .then(() => {
-        console.log("SignalR 通知连接成功");
-      })
-      .catch((error) => {
-        console.error("SignalR 通知连接失败：", error);
-      });
+    /*
+     * ==========================================
+     * 启动 SignalR
+     * ==========================================
+     *
+     * 开发环境经常会出现：
+     *
+     * 前端已经启动
+     * ↓
+     * 后端正在重启
+     * ↓
+     * 第一次 connection.start() 失败
+     *
+     * 如果只 catch，
+     * 这个页面后面就不会再有实时通知。
+     *
+     * 所以第一次启动失败以后，
+     * 每 5 秒重新尝试一次。
+     */
+    let stopped = false;
+
+    async function startConnection() {
+      while (!stopped && connection.state === "Disconnected") {
+        try {
+          await connection.start();
+
+          console.log("SignalR 通知连接成功");
+
+          /*
+           * SignalR 刚连上以后，
+           * 立即从服务器同步一次未读数。
+           *
+           * 防止连接之前已经产生过通知。
+           */
+          await refreshUnreadCount();
+
+          break;
+        } catch (error) {
+          console.error("SignalR 通知连接失败，5秒后重试：", error);
+
+          await new Promise<void>((resolve) => {
+            window.setTimeout(resolve, 5000);
+          });
+        }
+      }
+    }
+
+    void startConnection();
 
     return () => {
+      /*
+       * 告诉启动重试循环：
+       * 页面已经卸载，不要再尝试重连。
+       */
+      stopped = true;
+
       void connection.stop();
     };
   }, []);
@@ -122,7 +214,38 @@ function MainLayout() {
     setNotificationOpen(false);
 
     if (notification.targetUrl) {
-      navigate(notification.targetUrl);
+      /*
+       * ==========================================
+       * 通知跳转
+       * ==========================================
+       *
+       * 不能只调用：
+       *
+       * navigate(notification.targetUrl)
+       *
+       * 因为用户可能本来就已经停留在目标页面。
+       *
+       * 例如：
+       *
+       * 当前页面：
+       * /tickets
+       *
+       * 新通知：
+       * /tickets?ticketId=35
+       *
+       * TicketPage 组件不会重新挂载，
+       * 原来加载的 tickets 数据也还是旧的。
+       *
+       * 所以通过 state 携带一个每次都不同的刷新标记。
+       *
+       * 目标页面如果关心这个标记，
+       * 就主动重新请求最新数据。
+       */
+      navigate(notification.targetUrl, {
+        state: {
+          notificationRefreshKey: Date.now(),
+        },
+      });
     }
   }
 
@@ -178,7 +301,18 @@ function MainLayout() {
                 setNotificationOpen(open);
 
                 if (open) {
-                  await refreshNotifications();
+                  /*
+                   * 打开通知面板时，
+                   * 不仅刷新通知列表，
+                   * 还要重新同步未读数量。
+                   *
+                   * 这样即使之前 SignalR 某一次实时消息漏掉了，
+                   * 用户打开铃铛时也可以自动纠正状态。
+                   */
+                  await Promise.all([
+                    refreshNotifications(),
+                    refreshUnreadCount(),
+                  ]);
                 }
               }}
             >

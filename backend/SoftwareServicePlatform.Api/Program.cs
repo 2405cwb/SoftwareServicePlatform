@@ -7,6 +7,7 @@ using SoftwareServicePlatform.Api.Data;
 using SoftwareServicePlatform.Api.Hubs;
 using SoftwareServicePlatform.Api.Models;
 using SoftwareServicePlatform.Api.Services;
+using SoftwareServicePlatform.Api.Services.ExternalNotifications;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -34,6 +35,82 @@ builder.Services.AddHostedService<
     SlaNotificationBackgroundService>();
 
 builder.Services.AddSignalR();
+
+
+
+/*
+ * ==========================================
+ * 外部通知统一调度服务
+ * ==========================================
+ *
+ * Controller 和业务 Service
+ * 后面统一依赖这个接口。
+ */
+builder.Services.AddScoped<
+    IExternalNotificationService,
+    ExternalNotificationService>();
+
+
+/*
+ * ==========================================
+ * 钉钉配置
+ * ==========================================
+ *
+ * 把配置文件：
+ *
+ * "DingTalk": {
+ *     "Enabled": true,
+ *     "Webhook": "...",
+ *     "Keyword": "软件服务平台"
+ * }
+ *
+ * 绑定到 DingTalkOptions。
+ */
+builder.Services.Configure<DingTalkOptions>(
+    builder.Configuration.GetSection(
+        "DingTalk"
+    )
+);
+
+
+/*
+ * ==========================================
+ * 钉钉 HTTP Sender
+ * ==========================================
+ *
+ * 由 IHttpClientFactory 管理 HttpClient。
+ */
+builder.Services.AddHttpClient<
+    DingTalkNotificationSender>(
+    client =>
+    {
+        /*
+         * 外部平台出现网络问题时，
+         * 不能让请求一直卡着。
+         */
+        client.Timeout =
+            TimeSpan.FromSeconds(10);
+    });
+
+
+/*
+ * ==========================================
+ * 把钉钉 Sender 注册成统一 Sender
+ * ==========================================
+ *
+ * ExternalNotificationService 中：
+ *
+ * IEnumerable<IExternalNotificationSender>
+ *
+ * 就能找到 DingTalkNotificationSender。
+ */
+builder.Services.AddScoped<
+    IExternalNotificationSender>(
+        serviceProvider =>
+            serviceProvider.GetRequiredService<
+                DingTalkNotificationSender>()
+    );
+
 /*
  
  * 客户门户工单入口保护：

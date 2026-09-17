@@ -5,6 +5,7 @@ using SoftwareServicePlatform.Api.Data;
 using SoftwareServicePlatform.Api.Dtos.Tickets;
 using SoftwareServicePlatform.Api.Models;
 using SoftwareServicePlatform.Api.Services;
+using SoftwareServicePlatform.Api.Services.ExternalNotifications;
 using System.Security.Claims;
 
 namespace SoftwareServicePlatform.Api.Controllers
@@ -583,23 +584,117 @@ namespace SoftwareServicePlatform.Api.Controllers
             foreach (var supportUserId in supportUserIds)
             {
                 await _notificationService.AddAsync(
+                    /*
+                     * ==========================================
+                     * 站内通知
+                     * ==========================================
+                     *
+                     * 每一个 Support 用户仍然拥有
+                     * 自己独立的一条 Notification。
+                     */
                     userId: supportUserId,
 
                     type: "TicketCreated",
 
-                    title: "收到新的客户工单",
+            title: $"收到新的客户工单：{ticket.TicketNo}",
 
-                    content:
-                        $"{customer.Name}提交了工单 " +
-                        $"{ticket.TicketNo}：{ticket.Title}",
+                   content:
+    BuildTicketCreatedNotificationContent(
+        ticket,
+        customer.Name,
+        software.Name
+    ),
 
                     level: "Info",
 
                     targetUrl:
                         $"/tickets?ticketId={ticket.Id}",
 
+
+                    /*
+                     * ==========================================
+                     * 站内通知去重 Key
+                     * ==========================================
+                     *
+                     * 每个 Support 用户必须不同，
+                     * 因为数据库中每个人都需要一条通知。
+                     */
                     dedupKey:
-                        $"ticket:{ticket.Id}:created:support:{supportUserId}"
+                        $"ticket:{ticket.Id}:created:support:{supportUserId}",
+
+
+                    /*
+                     * ==========================================
+                     * 外部通知投递策略
+                     * ==========================================
+                     *
+                     * 这里明确告诉 NotificationService：
+                     *
+                     * 除了数据库 + SignalR，
+                     * 这次还需要发送到钉钉。
+                     */
+                    deliveryOptions:
+                        new NotificationDeliveryOptions
+                        {
+                            /*
+                             * 当前先发送钉钉。
+                             *
+                             * 以后如果增加企业微信：
+                             *
+                             * ExternalChannels =
+                             * {
+                             *     "DingTalk",
+                             *     "WeCom"
+                             * }
+                             */
+                            ExternalChannels =
+                            {
+                    "DingTalk"
+                            },
+
+
+                            /*
+                             * 未来希望在钉钉中 @
+                             * 当前这条通知对应的 Support 用户。
+                             *
+                             * 现在我们还没有建立：
+                             *
+                             * 系统 UserId
+                             *      ↓
+                             * 钉钉 UserId
+                             *
+                             * 的绑定关系，
+                             * 所以目前这个字段只是先把意图保留下来。
+                             */
+                            MentionRecipient = true,
+
+
+                            /*
+                             * ======================================
+                             * 非常重要：外部事件 Key
+                             * ======================================
+                             *
+                             * 假设系统有：
+                             *
+                             * Support 张三
+                             * Support 李四
+                             * Support 王五
+                             *
+                             * 那么数据库会产生 3 条站内通知。
+                             *
+                             * 但钉钉群里绝对不能发 3 次：
+                             *
+                             * “收到新的客户工单”
+                             *
+                             * 所以三条通知使用完全相同的
+                             * ExternalEventKey。
+                             *
+                             * NotificationService 会把它们合并，
+                             * 最终钉钉只发送 1 次。
+                             */
+                            ExternalEventKey =
+                                $"ticket:{ticket.Id}:created"
+                        }
                 );
             }
             /*
@@ -1426,14 +1521,131 @@ namespace SoftwareServicePlatform.Api.Controllers
                     .FirstOrDefaultAsync(
                         x => x.Id == ticket.SoftwareId
                     );
+            /*
+ * ==========================================
+ * 工单分诊 / 分配完成通知
+ * ==========================================
+ *
+ * 当前工单已经明确：
+ *
+ * 软件
+ * 优先级
+ * 处理人
+ * 状态
+ *
+ * 因此这里向新的处理人发送：
+ *
+ * 1. 站内 Notification
+ * 2. SignalR
+ * 3. 钉钉外部通知
+ *
+ * 后续 ExternalUserBinding 做完以后，
+ * MentionRecipient = true
+ * 就可以进一步在钉钉群里 @ 对应处理人。
+ */
+            await _notificationService.AddAsync(
+                /*
+                 * 通知真正负责处理工单的人。
+                 */
+                userId:
+                    assignedUser.Id,
 
+                type:
+                    "TicketAssigned",
+
+                title:
+                    $"工单已分配：{ticket.TicketNo}",
+
+                content:
+                    BuildTicketAssignedNotificationContent(
+                        ticket,
+
+                        customer?.Name
+                            ?? string.Empty,
+
+                        software?.Name
+                            ?? string.Empty,
+
+                        assignedUser,
+
+                        currentUser
+                    ),
+
+                /*
+                 * 分配工单属于值得关注的通知。
+                 */
+                level:
+                    ticket.Priority == "Urgent"
+                        ? "Warning"
+                        : "Info",
+
+                targetUrl:
+                    $"/tickets?ticketId={ticket.Id}",
+
+                /*
+                 * 当前处理人自己的站内通知去重。
+                 */
+                dedupKey:
+                    $"ticket:{ticket.Id}:assigned:{assignedUser.Id}:{ticket.UpdatedAt.Ticks}",
+
+
+                deliveryOptions:
+                    new NotificationDeliveryOptions
+                    {
+                        ExternalChannels =
+                        {
+                "DingTalk"
+                        },
+
+
+                        /*
+                         * 后面做好钉钉用户绑定以后，
+                         * 就尝试 @ 新处理人。
+                         */
+                        MentionRecipient = true,
+
+
+                        /*
+                         * 一次分配操作，
+                         * 外部平台只发送一次。
+                         *
+                         * 加 UpdatedAt 是因为：
+                         *
+                         * 工单可能：
+                         *
+                         * 张三
+                         * ↓
+                         * 李四
+                         * ↓
+                         * 王五
+                         *
+                         * 每次重新分配都应该产生新的通知，
+                         * 不能被第一次分配的 EventKey 合并掉。
+                         */
+                        ExternalEventKey =
+                            $"ticket:{ticket.Id}:assigned:{ticket.UpdatedAt.Ticks}"
+                    }
+            );
 
             /*
              * ==========================================
              * 11. 返回结果
              * ==========================================
              */
+            /*
+ * 保存刚刚新增的 Notification。
+ */
+            await _dbContext.SaveChangesAsync();
 
+
+            /*
+             * 数据库保存成功以后，
+             * 再进行 SignalR 和钉钉推送。
+             *
+             * 即使钉钉失败，
+             * 工单分配结果和站内通知都已经保存。
+             */
+            await _notificationService.PushPendingAsync();
             return Ok(
                 new
                 {
@@ -1476,7 +1688,9 @@ namespace SoftwareServicePlatform.Api.Controllers
                     ticket.UpdatedAt
                 }
             );
-        }/// <summary>
+        }
+        
+        /// <summary>
          /// 给工单增加一条处理记录。
          ///
          /// POST /api/tickets/{id}/records
@@ -3260,6 +3474,115 @@ namespace SoftwareServicePlatform.Api.Controllers
                     dedupKey: null
                 );
             }
+        }
+
+        /// <summary>
+        /// 获取工单优先级中文名称。
+        ///
+        /// 后端数据库仍然保存英文枚举值：
+        ///
+        /// Unclassified
+        /// Low
+        /// Normal
+        /// High
+        /// Urgent
+        ///
+        /// 这里只负责把它转换成适合用户阅读的文字。
+        /// </summary>
+        private static string GetTicketPriorityName(
+            string? priority)
+        {
+            return priority switch
+            {
+                "Unclassified" => "待分诊",
+                "Low" => "低",
+                "Normal" => "普通",
+                "High" => "高",
+                "Urgent" => "紧急",
+
+                _ => string.IsNullOrWhiteSpace(priority)
+                    ? "未设置"
+                    : priority
+            };
+        }
+
+
+        /// <summary>
+        /// 防止问题描述太长，
+        /// 导致钉钉群消息变得非常臃肿。
+        ///
+        /// 第一版最多显示 200 个字符。
+        /// 完整内容仍然在系统工单页面查看。
+        /// </summary>
+        private static string GetTicketDescriptionSummary(
+            string? description)
+        {
+            if (string.IsNullOrWhiteSpace(description))
+            {
+                return "无";
+            }
+
+            var text = description.Trim();
+
+            return text.Length <= 200
+                ? text
+                : text[..200] + "...";
+        }
+
+
+        /// <summary>
+        /// 构造“工单创建”外部通知正文。
+        ///
+        /// 统一在这里控制钉钉、企业微信等
+        /// 外部渠道看到的工单信息格式。
+        ///
+        /// 以后如果增加字段，
+        /// 只修改这里即可，
+        /// 不要在 Controller 各处重复拼字符串。
+        /// </summary>
+        private static string BuildTicketCreatedNotificationContent(
+            Ticket ticket,
+            string customerName,
+            string softwareName)
+        {
+            return
+                $"工单号：{ticket.TicketNo}\n" +
+                $"客户：{customerName}\n" +
+                $"软件：{softwareName}\n" +
+                $"标题：{ticket.Title}\n" +
+                $"优先级：{GetTicketPriorityName(ticket.Priority)}\n" +
+                $"处理人：待分配\n" +
+                $"问题描述：{GetTicketDescriptionSummary(ticket.Description)}";
+        }
+
+        /// <summary>
+        /// 构造“工单已分诊/分配”通知正文。
+        ///
+        /// 此时工单已经明确了：
+        ///
+        /// 优先级
+        /// 处理人
+        /// 状态
+        ///
+        /// 所以信息应该比“新工单”通知更完整。
+        /// </summary>
+        private static string BuildTicketAssignedNotificationContent(
+            Ticket ticket,
+            string customerName,
+            string softwareName,
+            User assignedUser,
+            User operatorUser)
+        {
+            return
+                $"工单号：{ticket.TicketNo}\n" +
+                $"客户：{customerName}\n" +
+                $"软件：{softwareName}\n" +
+                $"标题：{ticket.Title}\n" +
+                $"优先级：{GetTicketPriorityName(ticket.Priority)}\n" +
+                $"处理人：{assignedUser.DisplayName}（{GetTicketRoleName(assignedUser.Role)}）\n" +
+                $"分诊人：{operatorUser.DisplayName}\n" +
+                $"状态：处理中\n" +
+                $"问题描述：{GetTicketDescriptionSummary(ticket.Description)}";
         }
     }
 }
