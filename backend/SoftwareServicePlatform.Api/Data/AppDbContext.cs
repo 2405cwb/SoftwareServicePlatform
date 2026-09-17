@@ -419,6 +419,83 @@ namespace SoftwareServicePlatform.Api.Data
             modelBuilder.Entity<Ticket>()
     .Property(x => x.SlaPriority)
     .HasMaxLength(30);
+
+
+            /*
+ * ==========================================
+ * Notification
+ * 站内通知
+ * ==========================================
+ */
+
+            modelBuilder.Entity<Notification>()
+                .HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+
+            modelBuilder.Entity<Notification>()
+                .Property(x => x.Type)
+                .HasMaxLength(50);
+
+
+            modelBuilder.Entity<Notification>()
+                .Property(x => x.Level)
+                .HasMaxLength(20);
+
+
+            modelBuilder.Entity<Notification>()
+                .Property(x => x.Title)
+                .HasMaxLength(200);
+
+
+            modelBuilder.Entity<Notification>()
+                .Property(x => x.TargetUrl)
+                .HasMaxLength(500);
+
+
+            modelBuilder.Entity<Notification>()
+                .Property(x => x.DedupKey)
+                .HasMaxLength(200);
+
+
+            /*
+             * 同一个用户不能收到相同 DedupKey 的重复通知。
+             *
+             * 注意：
+             * DedupKey 可以为空。
+             *
+             * 普通通知可以不设置 DedupKey，
+             * 只有需要防重复的通知才使用它。
+             */
+            modelBuilder.Entity<Notification>()
+                .HasIndex(x => new
+                {
+                    x.UserId,
+                    x.DedupKey
+                })
+                .IsUnique();
+
+
+            /*
+             * 通知中心最常见的查询：
+             *
+             * 当前用户
+             * +
+             * 是否未读
+             * +
+             * 创建时间倒序
+             *
+             * 因此提前建立索引。
+             */
+            modelBuilder.Entity<Notification>()
+                .HasIndex(x => new
+                {
+                    x.UserId,
+                    x.IsRead,
+                    x.CreatedAt
+                });
         }
         public DbSet<Models.Customer> Customers { get; set; } = null!;
         public DbSet<Software> Softwares { get; set; }
@@ -464,5 +541,10 @@ namespace SoftwareServicePlatform.Api.Data
         /// 工单 SLA 配置规则。
         /// </summary>
         public DbSet<TicketSlaRule> TicketSlaRules { get; set; }
+
+        /// <summary>
+        /// 站内通知。
+        /// </summary>
+        public DbSet<Notification> Notifications { get; set; } = null!;
     }
 }
