@@ -1406,7 +1406,30 @@ namespace SoftwareServicePlatform.Api.Controllers
                     "所选处理人账号已停用"
                 );
             }
-
+            /*
+ * ==========================================
+ * 防止重复分配给当前处理人
+ * ==========================================
+ *
+ * 例如：
+ *
+ * 当前处理人 = 张三
+ * 新处理人   = 张三
+ *
+ * 这种操作没有产生任何真正业务变化，
+ * 不应该：
+ *
+ * 生成 TicketRecord
+ * 发送站内通知
+ * 发送钉钉
+ */
+            if (ticket.AssignedToUserId ==
+                assignedUser.Id)
+            {
+                return BadRequest(
+                    "该用户已经是当前工单处理人，无需重复分配"
+                );
+            }
 
             /*
              * ==========================================
@@ -1475,7 +1498,19 @@ namespace SoftwareServicePlatform.Api.Controllers
             var oldAssignedToUserId =
                 ticket.AssignedToUserId;
 
-
+            /*
+ * ==========================================
+ * 判断本次属于第一次分配还是重新分配
+ * ==========================================
+ *
+ * oldAssignedToUserId == null：
+ *     Ticket.Assigned
+ *
+ * oldAssignedToUserId != null：
+ *     Ticket.Reassigned
+ */
+            var isReassignment =
+                oldAssignedToUserId.HasValue;
             /*
              * 设置新的处理人。
              */
@@ -1621,130 +1656,137 @@ namespace SoftwareServicePlatform.Api.Controllers
                         x => x.Id == ticket.SoftwareId
                     );
             /*
- * ==========================================
- * 工单分诊 / 分配完成通知
- * ==========================================
- *
- * 当前工单已经明确：
- *
- * 软件
- * 优先级
- * 处理人
- * 状态
- *
- * 因此这里向新的处理人发送：
- *
- * 1. 站内 Notification
- * 2. SignalR
- * 3. 钉钉外部通知
- *
- * 后续 ExternalUserBinding 做完以后，
- * MentionRecipient = true
- * 就可以进一步在钉钉群里 @ 对应处理人。
- */
-            await _notificationService.AddAsync(
-                /*
-                 * 通知真正负责处理工单的人。
-                 */
-                userId:
-                    assignedUser.Id,
-
-                type:
-                    "TicketAssigned",
-
-                title:
-                    $"工单已分配：{ticket.TicketNo}",
-
-                content:
-                    BuildTicketAssignedNotificationContent(
-                        ticket,
-
-                        customer?.Name
-                            ?? string.Empty,
-
-                        software?.Name
-                            ?? string.Empty,
-
-                        assignedUser,
-
-                        currentUser
-                    ),
-
-                /*
-                 * 分配工单属于值得关注的通知。
-                 */
-                level:
-                    ticket.Priority == "Urgent"
-                        ? "Warning"
-                        : "Info",
-
-                targetUrl:
-                    $"/tickets?ticketId={ticket.Id}",
-
-                /*
-                 * 当前处理人自己的站内通知去重。
-                 */
-                dedupKey:
-                    $"ticket:{ticket.Id}:assigned:{assignedUser.Id}:{ticket.UpdatedAt.Ticks}",
+          * ==========================================
+          * 发布“工单分配 / 重新分配”通知事件
+          * ==========================================
+          *
+          * Controller 不再负责：
+          *
+          * 通知哪个用户
+          * 是否发送钉钉
+          * 是否 @
+          * SignalR 推送
+          *
+          * 这里只负责判断：
+          *
+          * 本次业务动作到底是什么。
+          */
+            await _notificationEventService.PublishAsync(
+                new NotificationEventRequest
+                {
+                    /*
+                     * ==========================================
+                     * 第一次分配 / 重新分配
+                     * ==========================================
+                     */
+                    EventKey =
+                        isReassignment
+                            ? NotificationEventKeys
+                                .TicketReassigned
+                            : NotificationEventKeys
+                                .TicketAssigned,
 
 
-                deliveryOptions:
-                    new NotificationDeliveryOptions
-                    {
-                        ExternalChannels =
+                    /*
+                     * 两种事件的默认策略目前都是：
+                     *
+                     * RecipientStrategy = Assignee
+                     *
+                     * Resolver 会重新读取：
+                     *
+                     * Ticket.AssignedToUserId
+                     *
+                     * 得到刚刚保存的新处理人。
+                     */
+                    Context =
+                        new NotificationRecipientContext
                         {
-                "DingTalk"
+                            TicketId =
+                                ticket.Id
                         },
 
 
-                        /*
-                         * 后面做好钉钉用户绑定以后，
-                         * 就尝试 @ 新处理人。
-                         */
-                        MentionRecipient = true,
+                    /*
+                     * 标题根据业务动作区分。
+                     */
+                    Title =
+                        isReassignment
+                            ? $"工单已重新分配：{ticket.TicketNo}"
+                            : $"工单已分配：{ticket.TicketNo}",
 
 
-                        /*
-                         * 一次分配操作，
-                         * 外部平台只发送一次。
-                         *
-                         * 加 UpdatedAt 是因为：
-                         *
-                         * 工单可能：
-                         *
-                         * 张三
-                         * ↓
-                         * 李四
-                         * ↓
-                         * 王五
-                         *
-                         * 每次重新分配都应该产生新的通知，
-                         * 不能被第一次分配的 EventKey 合并掉。
-                         */
-                        ExternalEventKey =
-                            $"ticket:{ticket.Id}:assigned:{ticket.UpdatedAt.Ticks}"
-                    }
+                    /*
+                     * 当前继续复用已经存在的
+                     * 通知正文生成方法。
+                     */
+                    Content =
+                        BuildTicketAssignedNotificationContent(
+                            ticket,
+
+                            customer?.Name
+                                ?? string.Empty,
+
+                            software?.Name
+                                ?? string.Empty,
+
+                            assignedUser,
+
+                            currentUser
+                        ),
+
+
+                    /*
+                     * 紧急工单动态提高通知等级。
+                     *
+                     * 其他情况使用策略表默认 Info。
+                     */
+                    Level =
+                        ticket.Priority == "Urgent"
+                            ? "Warning"
+                            : null,
+
+
+                    TargetUrl =
+                        $"/tickets?ticketId={ticket.Id}",
+
+
+                    /*
+                     * ==========================================
+                     * 去重 Key
+                     * ==========================================
+                     *
+                     * 使用 assignRecord.Id
+                     * 比 UpdatedAt.Ticks 更能表达业务含义。
+                     *
+                     * 每一次真实的分配行为都会生成
+                     * 一条新的 Assign TicketRecord。
+                     *
+                     * 因此：
+                     *
+                     * ticket:15:assigned:80
+                     *
+                     * 就明确表示：
+                     *
+                     * 第 80 条业务记录对应的这次分配。
+                     */
+                    DedupKey =
+                        isReassignment
+                            ? $"ticket:{ticket.Id}:" +
+                              $"reassigned:{assignRecord.Id}"
+                            : $"ticket:{ticket.Id}:" +
+                              $"assigned:{assignRecord.Id}",
+
+
+                    /*
+                     * 暂时保持现有前端使用的 Type。
+                     *
+                     * 第一次分配和重新分配，
+                     * 当前前端都可以按 TicketAssigned 显示。
+                     */
+                    NotificationType =
+                        "TicketAssigned"
+                }
             );
-
-            /*
-             * ==========================================
-             * 11. 返回结果
-             * ==========================================
-             */
-            /*
- * 保存刚刚新增的 Notification。
- */
-            await _dbContext.SaveChangesAsync();
-
-
-            /*
-             * 数据库保存成功以后，
-             * 再进行 SignalR 和钉钉推送。
-             *
-             * 即使钉钉失败，
-             * 工单分配结果和站内通知都已经保存。
-             */
-            await _notificationService.PushPendingAsync();
             return Ok(
                 new
                 {
@@ -2205,133 +2247,104 @@ namespace SoftwareServicePlatform.Api.Controllers
  *     ↓
  * 通知所有 Support
  */
-            if (isCustomerReply)
-            {
-                await _notificationEventService.PublishAsync(
-                    new NotificationEventRequest
-                    {
-                        /*
-                         * 业务事件。
-                         */
-                        EventKey =
-                            NotificationEventKeys
-                                .TicketCustomerReplied,
+if (isCustomerReply)
+{
+    await _notificationEventService.PublishAsync(
+        new NotificationEventRequest
+        {
+            /*
+             * 业务事件。
+             */
+            EventKey =
+                NotificationEventKeys
+                    .TicketCustomerReplied,
 
-
-                        /*
-                         * Resolver 根据 TicketId
-                         * 查询当前处理人。
-                         */
-                        Context =
-                            new NotificationRecipientContext
-                            {
-                                TicketId =
-                                    ticket.Id
-                            },
-
-
-                        /*
-                         * 不再区分：
-                         *
-                         * “客户回复了工单”
-                         *
-                         * 和：
-                         *
-                         * “客户回复了未分配工单”
-                         *
-                         * 因为“通知谁”已经由策略负责。
-                         */
-                        Title =
-                            $"客户回复了工单：{ticket.TicketNo}",
-
-
-                        /*
-                         * 当前先保持消息简洁。
-                         *
-                         * 完整回复内容仍然可以进入
-                         * 工单工作台查看。
-                         */
-                        Content =
-                            $"{currentUser.DisplayName}回复了工单 " +
-                            $"{ticket.TicketNo}：{ticket.Title}",
-
-
-                        /*
-                         * 不指定 Level。
-                         *
-                         * 自动使用：
-                         *
-                         * NotificationPolicy.DefaultLevel
-                         *
-                         * 当前默认为 Info。
-                         */
-
-
-                        TargetUrl =
-                            $"/tickets?ticketId={ticket.Id}",
-
-
-                        /*
-                         * ==========================================
-                         * 去重 Key
-                         * ==========================================
-                         *
-                         * 这里使用 record.Id 非常合适。
-                         *
-                         * 因为客户每回复一次，
-                         * 都会产生一条新的 TicketRecord。
-                         *
-                         * 例如：
-                         *
-                         * ticket:15:customer-reply:81
-                         * ticket:15:customer-reply:94
-                         *
-                         * 每次回复都是独立业务事件，
-                         * 但同一次回复不会重复通知。
-                         */
-                        DedupKey =
-                            $"ticket:{ticket.Id}:" +
-                            $"customer-reply:{record.Id}",
-
-
-                        /*
-                         * 暂时兼容当前前端已有的通知类型。
-                         */
-                        NotificationType =
-                            "TicketReply"
-                    }
-                );
-            }
 
             /*
-  * ==========================================
-  * 旧通知体系临时兼容
-  * ==========================================
-  *
-  * Customer 回复已经由：
-  *
-  * NotificationEventService
-  *
-  * 自己完成：
-  *
-  * SaveChanges
-  * SignalR
-  * 外部通知
-  *
-  * 所以这里不需要再 Push。
-  *
-  * 只有尚未迁移的：
-  *
-  * 公司人员公开回复客户
-  *
-  * 才继续调用旧 PushPendingAsync。
-  */
-            if (!isCustomerReply &&
-                !request.IsInternal)
-            {
-                await _notificationService
-                    .PushPendingAsync();
-            }
+             * Resolver 根据 TicketId
+             * 查询当前处理人。
+             */
+            Context =
+                new NotificationRecipientContext
+                {
+                    TicketId =
+                        ticket.Id
+                },
+
+
+            /*
+             * 不再区分：
+             *
+             * “客户回复了工单”
+             *
+             * 和：
+             *
+             * “客户回复了未分配工单”
+             *
+             * 因为“通知谁”已经由策略负责。
+             */
+            Title =
+                $"客户回复了工单：{ticket.TicketNo}",
+
+
+            /*
+             * 当前先保持消息简洁。
+             *
+             * 完整回复内容仍然可以进入
+             * 工单工作台查看。
+             */
+            Content =
+                $"{currentUser.DisplayName}回复了工单 " +
+                $"{ticket.TicketNo}：{ticket.Title}",
+
+
+            /*
+             * 不指定 Level。
+             *
+             * 自动使用：
+             *
+             * NotificationPolicy.DefaultLevel
+             *
+             * 当前默认为 Info。
+             */
+
+
+            TargetUrl =
+                $"/tickets?ticketId={ticket.Id}",
+
+
+            /*
+             * ==========================================
+             * 去重 Key
+             * ==========================================
+             *
+             * 这里使用 record.Id 非常合适。
+             *
+             * 因为客户每回复一次，
+             * 都会产生一条新的 TicketRecord。
+             *
+             * 例如：
+             *
+             * ticket:15:customer-reply:81
+             * ticket:15:customer-reply:94
+             *
+             * 每次回复都是独立业务事件，
+             * 但同一次回复不会重复通知。
+             */
+            DedupKey =
+                $"ticket:{ticket.Id}:" +
+                $"customer-reply:{record.Id}",
+
+
+            /*
+             * 暂时兼容当前前端已有的通知类型。
+             */
+            NotificationType =
+                "TicketReply"
+        }
+    );
+}
+            await _notificationService.PushPendingAsync();
 
             /*
              * ==========================================

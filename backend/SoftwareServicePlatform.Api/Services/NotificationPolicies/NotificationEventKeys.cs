@@ -38,6 +38,24 @@
             "Ticket.Triaged";
 
 
+  
+
+        /// <summary>
+        /// 工单第一次分配给处理人。
+        ///
+        /// 与 Ticket.Reassigned 区分：
+        ///
+        /// Ticket.Assigned
+        ///     原来没有处理人。
+        ///
+        /// Ticket.Reassigned
+        ///     原来已经有处理人，
+        ///     后续转交给另外一个人。
+        /// </summary>
+        public const string TicketAssigned =
+            "Ticket.Assigned";
+
+
         /// <summary>
         /// 工单被重新分配给其他处理人。
         /// </summary>
