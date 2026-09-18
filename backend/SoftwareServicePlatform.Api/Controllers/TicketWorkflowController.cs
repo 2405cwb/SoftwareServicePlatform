@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using SoftwareServicePlatform.Api.Data;
 using SoftwareServicePlatform.Api.Models;
 using SoftwareServicePlatform.Api.Services;
+using SoftwareServicePlatform.Api.Services.ExternalNotifications;
 using System.Security.Claims;
 
 namespace SoftwareServicePlatform.Api.Controllers;
@@ -222,24 +223,108 @@ public class TicketWorkflowController : ControllerBase
                 IsInternal = false,
                 CreatedAt = now
             });
+            /*
+ * ==========================================
+ * 查询工单关联的客户和软件名称
+ * ==========================================
+ *
+ * Triage 当前查询 Ticket 时，
+ * 没有 Include Customer / Software，
+ * 所以这里单独查询通知需要的信息。
+ */
+            var ticketInfo =
+                await _dbContext.Tickets
+                    .AsNoTracking()
+                    .Where(x => x.Id == ticket.Id)
+                    .Select(x => new
+                    {
+                        CustomerName = x.Customer.Name,
+                        SoftwareName = x.Software.Name
+                    })
+                    .FirstAsync();
+
 
             await _notificationService.AddAsync(
-                    userId: assignee.Id,
-                    type: "TicketAssigned",
-                    title: "有新的工单分配给你",
-                    content:
-                        $"工单 {ticket.TicketNo} 已分配给你：{ticket.Title}",
-                    level:
-                        priority == "Urgent"
-                            ? "Danger"
-                            : priority == "High"
-                                ? "Warning"
-                                : "Info",
-                    targetUrl:
-                        $"/tickets?ticketId={ticket.Id}",
-                    dedupKey:
-                    null
-            );
+    /*
+     * 分诊后真正处理这张工单的人。
+     */
+    userId:
+        assignee.Id,
+
+    type:
+        "TicketAssigned",
+
+    title:
+        $"工单已分诊：{ticket.TicketNo}",
+
+    /*
+     * ==========================================
+     * 通知正文
+     * ==========================================
+     *
+     * 不再只显示：
+     *
+     * “某工单分配给你”
+     *
+     * 而是把实际处理工单需要的信息一次带全。
+     */
+    content:
+        $"工单号：{ticket.TicketNo}\n" +
+        $"客户：{ticketInfo.CustomerName}\n" +
+        $"软件：{ticketInfo.SoftwareName}\n" +
+        $"标题：{ticket.Title}\n" +
+        $"优先级：{GetPriorityName(ticket.Priority)}\n" +
+        $"处理人：{assignee.DisplayName}（{GetRoleName(assignee.Role)}）\n" +
+        $"分诊人：{currentUser.DisplayName}",
+
+    level:
+        ticket.Priority == "Urgent"
+            ? "Warning"
+            : ticket.Priority == "High"
+                ? "Warning"
+                : "Info",
+
+    targetUrl:
+        $"/tickets?ticketId={ticket.Id}",
+
+    /*
+     * 每次分诊都是一个新的业务事件。
+     */
+    dedupKey:
+        null,
+
+
+    /*
+     * ==========================================
+     * 外部通知
+     * ==========================================
+     *
+     * 你现在缺的正是这一段。
+     */
+    deliveryOptions:
+        new NotificationDeliveryOptions
+        {
+            ExternalChannels =
+            {
+                "DingTalk"
+            },
+
+            /*
+             * @ 功能还没有实现，
+             * 但先保留这个业务意图。
+             */
+            MentionRecipient = true,
+
+            /*
+             * 本次分诊唯一事件。
+             *
+             * 使用 now.Ticks，
+             * 以后重新分诊仍然可以再次通知。
+             */
+            ExternalEventKey =
+                $"ticket:{ticket.Id}:triage:{now.Ticks}"
+        }
+);
         }
 
         await _dbContext.SaveChangesAsync();

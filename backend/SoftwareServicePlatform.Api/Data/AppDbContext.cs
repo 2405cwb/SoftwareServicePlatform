@@ -516,6 +516,88 @@ namespace SoftwareServicePlatform.Api.Data
                     x.CustomerId
                 })
                 .IsUnique();
+
+
+            /*
+ * ==========================================
+ * ExternalUserBinding
+ * ==========================================
+ *
+ * 一个系统用户可以绑定多个外部平台。
+ *
+ * 例如：
+ *
+ * UserId = 12
+ *
+ * DingTalk
+ * WeCom
+ * Feishu
+ *
+ * 因此关系为：
+ *
+ * User 1 : N ExternalUserBinding
+ */
+            modelBuilder.Entity<ExternalUserBinding>()
+                .HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+
+            /*
+             * ==========================================
+             * 同一个用户 + 同一个渠道只能绑定一次
+             * ==========================================
+             *
+             * 例如：
+             *
+             * UserId = 12
+             * Channel = DingTalk
+             *
+             * 数据库中原则上只能存在一条。
+             *
+             * 防止管理员误操作产生两条钉钉绑定，
+             * 导致后续不知道应该使用哪一个账号。
+             */
+            modelBuilder.Entity<ExternalUserBinding>()
+                .HasIndex(x => new
+                {
+                    x.UserId,
+                    x.Channel
+                })
+                .IsUnique();
+
+
+            /*
+             * 限制渠道名称长度。
+             *
+             * DingTalk / WeCom / Feishu
+             * 都远小于 50 字符。
+             */
+            modelBuilder.Entity<ExternalUserBinding>()
+                .Property(x => x.Channel)
+                .HasMaxLength(50)
+                .IsRequired();
+
+
+            /*
+             * 外部用户ID的长度暂时预留到 200。
+             *
+             * 不把它限制成某个钉钉专属长度，
+             * 因为这张表以后还要支持其他平台。
+             */
+            modelBuilder.Entity<ExternalUserBinding>()
+                .Property(x => x.ExternalUserId)
+                .HasMaxLength(200);
+
+
+            /*
+             * 手机号预留一定长度，
+             * 兼容国际区号等情况。
+             */
+            modelBuilder.Entity<ExternalUserBinding>()
+                .Property(x => x.Mobile)
+                .HasMaxLength(50);
         }
         public DbSet<Models.Customer> Customers { get; set; } = null!;
         public DbSet<Software> Softwares { get; set; }
@@ -571,6 +653,13 @@ namespace SoftwareServicePlatform.Api.Data
         /// 软件版本与客户发布范围关系。
         /// </summary>
         public DbSet<SoftwareVersionCustomer> SoftwareVersionCustomers
+        { get; set; } = null!;
+
+        /// <summary>
+        /// 系统用户与外部通知平台账号的绑定关系。
+        /// </summary>
+        public DbSet<ExternalUserBinding>
+            ExternalUserBindings
         { get; set; } = null!;
     }
 }
