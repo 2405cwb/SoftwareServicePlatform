@@ -1,6 +1,8 @@
-﻿using System.Net.Http.Json;
-using System.Text.Json.Serialization;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using SoftwareServicePlatform.Api.Data;
+using System.Net.Http.Json;
+using System.Text.Json.Serialization;
 
 namespace SoftwareServicePlatform.Api.Services.ExternalNotifications
 {
@@ -38,7 +40,27 @@ namespace SoftwareServicePlatform.Api.Services.ExternalNotifications
         /// 不要在每次发送时自己 new HttpClient()。
         /// </summary>
         private readonly HttpClient _httpClient;
-
+        /// <summary>
+        /// 数据库上下文。
+        ///
+        /// 当前 DingTalk Sender 需要通过：
+        ///
+        /// 平台内部 UserId
+        ///     ↓
+        /// ExternalUserBindings
+        ///     ↓
+        /// DingTalk Mobile
+        ///
+        /// 找到真正需要 @ 的钉钉账号。
+        ///
+        /// 注意：
+        ///
+        /// 工单业务层仍然完全不知道手机号。
+        /// 只有具体的 DingTalk Sender
+        /// 才关心钉钉身份如何解析。
+        /// </summary>
+        private readonly AppDbContext
+            _dbContext;
 
         /// <summary>
         /// appsettings 中读取到的钉钉配置。
@@ -75,19 +97,26 @@ namespace SoftwareServicePlatform.Api.Services.ExternalNotifications
         /// 都由 ASP.NET Core DI 自动注入。
         /// </summary>
         public DingTalkNotificationSender(
-            HttpClient httpClient,
-            IOptions<DingTalkOptions> options,
-            ILogger<DingTalkNotificationSender> logger)
+     HttpClient httpClient,
+     AppDbContext dbContext,
+     IOptions<DingTalkOptions> options,
+     ILogger<DingTalkNotificationSender> logger)
         {
-            _httpClient = httpClient;
+            _httpClient =
+                httpClient;
+
+            _dbContext =
+                dbContext;
 
             /*
              * IOptions<T>.Value
              * 就是从配置文件绑定后的实际配置对象。
              */
-            _options = options.Value;
+            _options =
+                options.Value;
 
-            _logger = logger;
+            _logger =
+                logger;
         }
 
 
@@ -152,7 +181,30 @@ namespace SoftwareServicePlatform.Api.Services.ExternalNotifications
 
                 return false;
             }
-
+            /*
+ * ==========================================
+ * 4. 解析真正需要 @ 的钉钉用户
+ * ==========================================
+ *
+ * 例如通知策略：
+ *
+ * Ticket.Assigned
+ * DingTalk = true
+ * MentionRecipient = true
+ *
+ * NotificationEventService：
+ *
+ * UserId = 15
+ *
+ * 到这里转换成：
+ *
+ * 钉钉绑定手机号
+ */
+            var atMobiles =
+                await ResolveMentionMobilesAsync(
+                    message,
+                    cancellationToken
+                );
 
             /*
              * ==========================================
@@ -192,16 +244,41 @@ namespace SoftwareServicePlatform.Api.Services.ExternalNotifications
                         },
 
                     At =
-                        new DingTalkAtOptions
-                        {
-                            /*
-                             * 第一版不 @所有人。
-                             *
-                             * 否则以后通知多了，
-                             * 群里体验会很差。
-                             */
-                            IsAtAll = false
-                        }
+    new DingTalkAtOptions
+    {
+        /*
+         * ==========================================
+         * @指定用户
+         * ==========================================
+         *
+         * 来源不是业务代码，
+         * 而是：
+         *
+         * NotificationPolicy
+         * MentionRecipient
+         *      ↓
+         * ExternalNotificationRecipient.Mention
+         *      ↓
+         * ExternalUserBinding.Mobile
+         */
+        AtMobiles =
+            atMobiles,
+
+
+        /*
+         * ==========================================
+         * @所有人
+         * ==========================================
+         *
+         * 由 NotificationPolicyChannel.MentionAll
+         * 决定。
+         *
+         * 默认 Seeder 中都是 false，
+         * 所以不会莫名其妙 @全群。
+         */
+        IsAtAll =
+            message.MentionAll
+    }
                 };
 
 
@@ -356,7 +433,143 @@ namespace SoftwareServicePlatform.Api.Services.ExternalNotifications
                 return false;
             }
         }
+        /// <summary>
+        /// 根据统一通知模型中的平台 UserId，
+        /// 查询真正需要在钉钉中 @ 的手机号。
+        ///
+        /// NotificationEventService 传进来的仍然是：
+        ///
+        /// UserId = 15
+        ///
+        /// DingTalk Sender 再负责：
+        ///
+        /// UserId = 15
+        ///     ↓
+        /// ExternalUserBinding
+        ///     ↓
+        /// Channel = DingTalk
+        ///     ↓
+        /// Mobile
+        ///
+        /// 这样业务代码不会依赖钉钉。
+        /// </summary>
+        private async Task<List<string>>
+            ResolveMentionMobilesAsync(
+                ExternalNotificationMessage message,
+                CancellationToken cancellationToken)
+        {
+            /*
+             * ==========================================
+             * 1. @所有人时无需再解析具体人员
+             * ==========================================
+             */
+            if (message.MentionAll)
+            {
+                return new List<string>();
+            }
 
+
+            /*
+             * ==========================================
+             * 2. 找出本次真正要求 @ 的平台用户
+             * ==========================================
+             *
+             * Recipients 中可能存在：
+             *
+             * Mention = true
+             * Mention = false
+             *
+             * 只有 true 的才参与钉钉 @。
+             */
+            var userIds =
+                message.Recipients
+                    .Where(x =>
+                        x.Mention
+                    )
+                    .Select(x =>
+                        x.UserId
+                    )
+                    .Distinct()
+                    .ToList();
+
+
+            /*
+             * 当前通知策略没有要求 @ 任何人。
+             */
+            if (userIds.Count == 0)
+            {
+                return new List<string>();
+            }
+
+
+            /*
+             * ==========================================
+             * 3. 查询启用的 DingTalk 绑定
+             * ==========================================
+             *
+             * 这里只读取：
+             *
+             * Channel = DingTalk
+             * IsEnabled = true
+             * Mobile 不为空
+             *
+             * 已停用绑定不能继续 @。
+             */
+            var mobiles =
+                await _dbContext
+                    .ExternalUserBindings
+                    .AsNoTracking()
+                    .Where(x =>
+                        x.Channel == "DingTalk"
+                        &&
+                        x.IsEnabled
+                        &&
+                        userIds.Contains(
+                            x.UserId
+                        )
+                        &&
+                        x.Mobile != null
+                        &&
+                        x.Mobile != ""
+                    )
+                    .Select(x =>
+                        x.Mobile!
+                    )
+                    .Distinct()
+                    .ToListAsync(
+                        cancellationToken
+                    );
+
+
+            /*
+             * ==========================================
+             * 4. 绑定缺失只记录数量
+             * ==========================================
+             *
+             * 这里绝对不要：
+             *
+             * LogWarning("手机号={Mobile}", mobile)
+             *
+             * 因为手机号属于个人信息。
+             *
+             * 我们只记录：
+             *
+             * 需要 @ 几个人
+             * 实际找到几个人
+             */
+            if (mobiles.Count <
+                userIds.Count)
+            {
+                _logger.LogWarning(
+                    "部分钉钉通知接收人尚未配置有效绑定。Requested={RequestedCount}, Bound={BoundCount}",
+                    userIds.Count,
+                    mobiles.Count
+                );
+            }
+
+
+            return mobiles;
+        }
 
         /// <summary>
         /// 把统一消息模型转换成
@@ -387,15 +600,24 @@ namespace SoftwareServicePlatform.Api.Services.ExternalNotifications
              * 转成用户容易理解的中文。
              */
             var levelText =
-                message.Level switch
-                {
-                    "Warning" => "警告",
+     message.Level switch
+     {
+         "Warning" =>
+             "警告",
 
-                    "Error" => "错误",
+         "Danger" =>
+             "严重",
 
-                    _ => "通知"
-                };
+         /*
+          * 保留 Error，
+          * 防止以后其他渠道传入旧级别。
+          */
+         "Error" =>
+             "错误",
 
+         _ =>
+             "通知"
+     };
 
             parts.Add(
                 $"【{levelText}】"
@@ -492,10 +714,37 @@ namespace SoftwareServicePlatform.Api.Services.ExternalNotifications
         }
 
 
+        /// <summary>
+        /// 钉钉 text 消息的 @ 配置。
+        /// </summary>
         private class DingTalkAtOptions
         {
+            /// <summary>
+            /// 需要 @ 的钉钉绑定手机号。
+            ///
+            /// 这里的数据来源于：
+            ///
+            /// ExternalUserBindings.Mobile
+            ///
+            /// 而不是 Users.Phone。
+            /// </summary>
+            [JsonPropertyName("atMobiles")]
+            public List<string> AtMobiles
+            {
+                get;
+                set;
+            } = new();
+
+
+            /// <summary>
+            /// 是否 @ 所有人。
+            /// </summary>
             [JsonPropertyName("isAtAll")]
-            public bool IsAtAll { get; set; }
+            public bool IsAtAll
+            {
+                get;
+                set;
+            }
         }
 
 
