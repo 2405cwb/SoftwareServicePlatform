@@ -20,6 +20,7 @@ import DashboardPage from "./pages/DashboardPage";
 import DownloadRecordPage from "./pages/DownloadRecordPage";
 import SlaSettingsPage from "./pages/SlaSettingsPage";
 import NotificationSettingsPage from "./pages/NotificationSettingsPage";
+import ClientUpdatePage from "./pages/ClientUpdatePage";
 
 function App() {
   return (
@@ -63,6 +64,11 @@ function App() {
           <Route element={<RequireRole allowedRoles={["Admin", "Support", "Developer"]} />}>
             <Route path="/software" element={<SoftwarePage />} />
             <Route path="/versions" element={<VersionPage />} />
+          </Route>
+
+          {/* 客户端自动更新：管理员和开发人员使用。 */}
+          <Route element={<RequireRole allowedRoles={["Admin", "Developer"]} />}>
+            <Route path="/client-updates" element={<ClientUpdatePage />} />
           </Route>
 
           <Route

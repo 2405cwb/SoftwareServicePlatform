@@ -1,0 +1,10 @@
+{
+  "serverUrl": "https://service.example.com",
+  "softwareCode": "ROAD_PROCESS",
+  "updateToken": "ssp_upd_请从平台管理员页面生成",
+  "versionFile": "version.txt",
+  "mainExecutable": "RoadProcess.exe",
+  "fallbackToFullInstaller": true,
+  "restartAfterUpdate": true,
+  "waitForProcessSeconds": 60
+}

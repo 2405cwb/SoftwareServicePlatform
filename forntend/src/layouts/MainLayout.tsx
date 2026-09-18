@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   LogOut,
   PackageOpen,
+  RefreshCw,
   SlidersHorizontal,
   TicketCheck,
   UserCog,
@@ -25,6 +26,7 @@ import {
   type NotificationItem,
 } from "../services/notifications";
 import { createNotificationConnection } from "../services/signalr";
+
 function MainLayout() {
   const navigate = useNavigate();
   const currentUser = getSessionUser();
@@ -35,6 +37,7 @@ function MainLayout() {
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+
   useEffect(() => {
     getPlatformInfo()
       .then((info) => {
@@ -44,6 +47,7 @@ function MainLayout() {
       })
       .catch((error) => console.error("加载平台配置失败：", error));
   }, []);
+
   useEffect(() => {
     void refreshUnreadCount();
 
@@ -88,6 +92,7 @@ function MainLayout() {
     connection.onclose((error) => {
       console.error("SignalR 通知连接已关闭：", error);
     });
+
     connection.on("NotificationCreated", (notification: NotificationItem) => {
       /*
        * 调试阶段先保留。
@@ -190,11 +195,13 @@ function MainLayout() {
       void connection.stop();
     };
   }, []);
+
   function logout() {
     sessionStorage.removeItem("access_token");
     sessionStorage.removeItem("current_user");
     navigate("/login", { replace: true });
   }
+
   async function refreshUnreadCount() {
     const data = await getUnreadCount();
     setUnreadCount(data.count);
@@ -261,6 +268,7 @@ function MainLayout() {
 
     setUnreadCount(0);
   }
+
   const canViewTickets = hasRole(
     currentUser,
     "Admin",
@@ -291,6 +299,7 @@ function MainLayout() {
               我的待办 {profile?.openTicketCount}
             </button>
           )}
+
           <div className="u-notification">
             <button
               type="button"
@@ -360,6 +369,7 @@ function MainLayout() {
               </div>
             )}
           </div>
+
           <div className="header-user-avatar">
             {currentUser?.displayName?.charAt(0) ||
               currentUser?.username?.charAt(0) ||
@@ -418,6 +428,13 @@ function MainLayout() {
             <NavLink to="/versions" className="sidebar-menu-item">
               <GitBranch size={18} />
               <span>版本管理</span>
+            </NavLink>
+          )}
+
+          {hasRole(currentUser, "Admin", "Developer") && (
+            <NavLink to="/client-updates" className="sidebar-menu-item">
+              <RefreshCw size={18} />
+              <span>客户端更新</span>
             </NavLink>
           )}
 
