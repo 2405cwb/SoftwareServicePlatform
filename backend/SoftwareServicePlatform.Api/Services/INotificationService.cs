@@ -1,4 +1,5 @@
 ﻿using SoftwareServicePlatform.Api.Models;
+using SoftwareServicePlatform.Api.Services.ExternalNotifications;
 
 namespace SoftwareServicePlatform.Api.Services
 {
@@ -28,13 +29,28 @@ namespace SoftwareServicePlatform.Api.Services
         /// 从而让业务数据和通知处于同一次数据库事务中。
         /// </summary>
         Task<Notification?> AddAsync(
-            int userId,
-            string type,
-            string title,
-            string content,
-            string level = "Info",
-            string? targetUrl = null,
-            string? dedupKey = null);
+      int userId,
+      string type,
+      string title,
+      string content,
+      string level = "Info",
+      string? targetUrl = null,
+      string? dedupKey = null,
+
+      /// <summary>
+      /// 可选的通知投递策略。
+      ///
+      /// null：
+      /// 只走原来的站内通知 + SignalR。
+      ///
+      /// 非 null：
+      /// 可以额外发送钉钉、企业微信等。
+      ///
+      /// 放在最后并且有默认值，
+      /// 所以以前所有调用 AddAsync() 的代码都不用修改。
+      /// </summary>
+      NotificationDeliveryOptions? deliveryOptions = null
+  );
 
         Task PushPendingAsync(
     CancellationToken cancellationToken = default);

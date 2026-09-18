@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SoftwareServicePlatform.Api.Data;
@@ -11,9 +12,11 @@ using SoftwareServicePlatform.Api.Data;
 namespace SoftwareServicePlatform.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260918011006_AddExternalUserBindings")]
+    partial class AddExternalUserBindings
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -289,97 +292,6 @@ namespace SoftwareServicePlatform.Api.Migrations
                     b.HasIndex("UserId", "IsRead", "CreatedAt");
 
                     b.ToTable("Notifications");
-                });
-
-            modelBuilder.Entity("SoftwareServicePlatform.Api.Models.NotificationPolicy", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("DefaultLevel")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<string>("EventKey")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("EventName")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<bool>("InAppEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("RecipientStrategy")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("EventKey")
-                        .IsUnique();
-
-                    b.ToTable("NotificationPolicies");
-                });
-
-            modelBuilder.Entity("SoftwareServicePlatform.Api.Models.NotificationPolicyChannel", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Channel")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("MentionAll")
-                        .HasColumnType("boolean");
-
-                    b.Property<bool>("MentionRecipient")
-                        .HasColumnType("boolean");
-
-                    b.Property<int>("NotificationPolicyId")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("NotificationPolicyId", "Channel")
-                        .IsUnique();
-
-                    b.ToTable("NotificationPolicyChannels");
                 });
 
             modelBuilder.Entity("SoftwareServicePlatform.Api.Models.Software", b =>
@@ -960,17 +872,6 @@ namespace SoftwareServicePlatform.Api.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("SoftwareServicePlatform.Api.Models.NotificationPolicyChannel", b =>
-                {
-                    b.HasOne("SoftwareServicePlatform.Api.Models.NotificationPolicy", "NotificationPolicy")
-                        .WithMany("Channels")
-                        .HasForeignKey("NotificationPolicyId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("NotificationPolicy");
-                });
-
             modelBuilder.Entity("SoftwareServicePlatform.Api.Models.SoftwareVersion", b =>
                 {
                     b.HasOne("SoftwareServicePlatform.Api.Models.Software", "Software")
@@ -1114,11 +1015,6 @@ namespace SoftwareServicePlatform.Api.Migrations
                     b.Navigation("CustomerSoftwares");
 
                     b.Navigation("Users");
-                });
-
-            modelBuilder.Entity("SoftwareServicePlatform.Api.Models.NotificationPolicy", b =>
-                {
-                    b.Navigation("Channels");
                 });
 
             modelBuilder.Entity("SoftwareServicePlatform.Api.Models.Software", b =>

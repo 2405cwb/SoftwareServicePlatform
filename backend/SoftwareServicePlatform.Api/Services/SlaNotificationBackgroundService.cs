@@ -1,89 +1,118 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using SoftwareServicePlatform.Api.Data;
 using SoftwareServicePlatform.Api.Models;
+using SoftwareServicePlatform.Api.Services.NotificationPolicies;
 
 namespace SoftwareServicePlatform.Api.Services;
 
-public class SlaNotificationBackgroundService : BackgroundService
+/// <summary>
+/// 工单 SLA 后台提醒服务。
+///
+/// 每 5 分钟检查：
+/// 首次响应 SLA 和解决 SLA。
+///
+/// 这里仅判断业务事件是否发生，
+/// 通知对象和渠道由 NotificationPolicy 决定。
+/// </summary>
+public class SlaNotificationBackgroundService
+    : BackgroundService
 {
-    private readonly IServiceScopeFactory _scopeFactory;
-    private readonly ILogger<SlaNotificationBackgroundService> _logger;
+    private readonly IServiceScopeFactory
+        _scopeFactory;
+
+    private readonly ILogger<
+        SlaNotificationBackgroundService>
+        _logger;
+
 
     public SlaNotificationBackgroundService(
         IServiceScopeFactory scopeFactory,
         ILogger<SlaNotificationBackgroundService> logger)
     {
-        _scopeFactory = scopeFactory;
-        _logger = logger;
+        _scopeFactory =
+            scopeFactory;
+
+        _logger =
+            logger;
     }
+
 
     protected override async Task ExecuteAsync(
         CancellationToken stoppingToken)
     {
-        /*
-         * 服务启动后先检查一次，
-         * 后面每5分钟检查一次。
-         */
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                await CheckSlaAsync(stoppingToken);
+                await CheckSlaAsync(
+                    stoppingToken
+                );
+            }
+            catch (OperationCanceledException)
+                when (stoppingToken.IsCancellationRequested)
+            {
+                break;
             }
             catch (Exception ex)
             {
                 _logger.LogError(
                     ex,
-                    "检查工单 SLA 通知失败");
+                    "检查工单 SLA 通知失败"
+                );
             }
 
-            await Task.Delay(
-                TimeSpan.FromMinutes(5),
-                stoppingToken);
+
+            try
+            {
+                await Task.Delay(
+                    TimeSpan.FromMinutes(5),
+                    stoppingToken
+                );
+            }
+            catch (OperationCanceledException)
+                when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
         }
     }
+
 
     private async Task CheckSlaAsync(
         CancellationToken cancellationToken)
     {
-        /*
-         * BackgroundService 是 Singleton，
-         * DbContext / NotificationService 是 Scoped。
-         *
-         * 所以每次执行需要自己创建 Scope。
-         */
         using var scope =
             _scopeFactory.CreateScope();
+
 
         var dbContext =
             scope.ServiceProvider
                 .GetRequiredService<AppDbContext>();
 
-        var notificationService =
+
+        var notificationEventService =
             scope.ServiceProvider
-                .GetRequiredService<INotificationService>();
+                .GetRequiredService<
+                    INotificationEventService>();
 
 
-        var now = DateTime.UtcNow;
+        var now =
+            DateTime.UtcNow;
 
 
-        /*
-         * 当前启用的 SLA 规则。
-         *
-         * WarningBeforeMinutes 使用当前配置。
-         */
         var slaRules =
             await dbContext.TicketSlaRules
                 .AsNoTracking()
-                .Where(x => x.IsEnabled)
+                .Where(x =>
+                    x.IsEnabled
+                )
                 .ToDictionaryAsync(
-                    x => x.Priority,
-                    cancellationToken);
+                    x =>
+                        x.Priority,
+                    cancellationToken
+                );
 
 
-        /*
-         * 只检查尚未结束，并且已经应用 SLA 的工单。
-         */
         var tickets =
             await dbContext.Tickets
                 .AsNoTracking()
@@ -92,23 +121,11 @@ public class SlaNotificationBackgroundService : BackgroundService
                     &&
                     x.Status != "Closed"
                     &&
-                    x.SlaPriority != null)
-                .ToListAsync(cancellationToken);
-
-
-        /*
-         * 未分配工单没有负责人，
-         * 这种情况通知所有售后。
-         */
-        var supportUserIds =
-            await dbContext.Users
-                .AsNoTracking()
-                .Where(x =>
-                    x.IsEnabled
-                    &&
-                    x.Role == "Support")
-                .Select(x => x.Id)
-                .ToListAsync(cancellationToken);
+                    x.SlaPriority != null
+                )
+                .ToListAsync(
+                    cancellationToken
+                );
 
 
         foreach (var ticket in tickets)
@@ -121,115 +138,150 @@ public class SlaNotificationBackgroundService : BackgroundService
             }
 
 
-            var recipientIds =
-                ticket.AssignedToUserId.HasValue
-                    ? new[] { ticket.AssignedToUserId.Value }
-                    : supportUserIds.ToArray();
-
-
-            /*
-             * ==========================================
-             * 首次响应 SLA
-             * ==========================================
-             */
             if (
                 !ticket.FirstResponseAt.HasValue
                 &&
-                ticket.SlaFirstResponseTargetMinutes.HasValue)
+                ticket
+                    .SlaFirstResponseTargetMinutes
+                    .HasValue
+            )
             {
                 var deadline =
                     ticket.CreatedAt.AddMinutes(
-                        ticket.SlaFirstResponseTargetMinutes.Value);
+                        ticket
+                            .SlaFirstResponseTargetMinutes
+                            .Value
+                    );
+
 
                 await CheckDeadlineAsync(
-                    notificationService,
+                    dbContext,
+                    notificationEventService,
                     ticket,
-                    recipientIds,
                     "first-response",
                     "首次响应",
                     deadline,
                     slaRule.WarningBeforeMinutes,
-                    now);
+                    now,
+                    cancellationToken
+                );
             }
 
 
-            /*
-             * ==========================================
-             * 解决 SLA
-             * ==========================================
-             */
             if (
                 !ticket.ResolvedAt.HasValue
                 &&
-                ticket.SlaResolutionTargetMinutes.HasValue)
+                ticket
+                    .SlaResolutionTargetMinutes
+                    .HasValue
+            )
             {
                 var deadline =
                     ticket.CreatedAt.AddMinutes(
-                        ticket.SlaResolutionTargetMinutes.Value);
+                        ticket
+                            .SlaResolutionTargetMinutes
+                            .Value
+                    );
+
 
                 await CheckDeadlineAsync(
-                    notificationService,
+                    dbContext,
+                    notificationEventService,
                     ticket,
-                    recipientIds,
                     "resolution",
                     "解决",
                     deadline,
                     slaRule.WarningBeforeMinutes,
-                    now);
+                    now,
+                    cancellationToken
+                );
             }
         }
-
-
-        /*
-         * NotificationService 只 Add，
-         * 最后统一保存。
-         */
-        await dbContext.SaveChangesAsync(
-            cancellationToken);
-
-        await notificationService.PushPendingAsync(
-    cancellationToken);
     }
 
 
     private static async Task CheckDeadlineAsync(
-        INotificationService notificationService,
+        AppDbContext dbContext,
+        INotificationEventService notificationEventService,
         Ticket ticket,
-        IEnumerable<int> recipientIds,
         string slaType,
         string slaName,
         DateTime deadline,
         int warningBeforeMinutes,
-        DateTime now)
+        DateTime now,
+        CancellationToken cancellationToken)
     {
-        /*
-         * 已经超时。
-         */
         if (now >= deadline)
         {
-            foreach (var userId in recipientIds)
+            var dedupKey =
+                $"ticket:{ticket.Id}:" +
+                $"sla:{slaType}:overdue";
+
+
+            /*
+             * BackgroundService 每 5 分钟执行。
+             *
+             * 先通过已有 Notification.DedupKey
+             * 判断这一 SLA 事件是否已经处理过，
+             * 避免钉钉也每 5 分钟重复发送。
+             */
+            var alreadySent =
+                await dbContext.Notifications
+                    .AsNoTracking()
+                    .AnyAsync(
+                        x =>
+                            x.DedupKey == dedupKey,
+                        cancellationToken
+                    );
+
+
+            if (alreadySent)
             {
-                await notificationService.AddAsync(
-                    userId: userId,
-                    type: "SlaOverdue",
-                    title: $"工单{slaName}已超时",
-                    content:
-                        $"工单 {ticket.TicketNo} 已超过{slaName} SLA，请尽快处理。",
-                    level: "Danger",
-                    targetUrl:
-                        $"/tickets?ticketId={ticket.Id}",
-                    dedupKey:
-                        $"ticket:{ticket.Id}:sla:{slaType}:overdue");
+                return;
             }
+
+
+            await notificationEventService.PublishAsync(
+                new NotificationEventRequest
+                {
+                    EventKey =
+                        NotificationEventKeys
+                            .TicketSlaOverdue,
+
+                    Context =
+                        new NotificationRecipientContext
+                        {
+                            TicketId =
+                                ticket.Id
+                        },
+
+                    Title =
+                        $"工单{slaName}已超时",
+
+                    Content =
+                        $"工单 {ticket.TicketNo} " +
+                        $"已超过{slaName} SLA，请尽快处理。",
+
+                    Level =
+                        "Danger",
+
+                    TargetUrl =
+                        $"/tickets?ticketId={ticket.Id}",
+
+                    DedupKey =
+                        dedupKey,
+
+                    NotificationType =
+                        "SlaOverdue"
+                },
+                cancellationToken
+            );
+
 
             return;
         }
 
 
-        /*
-         * WarningBeforeMinutes = 0
-         * 表示不启用提前预警。
-         */
         if (warningBeforeMinutes <= 0)
         {
             return;
@@ -238,28 +290,68 @@ public class SlaNotificationBackgroundService : BackgroundService
 
         var warningTime =
             deadline.AddMinutes(
-                -warningBeforeMinutes);
+                -warningBeforeMinutes
+            );
 
 
-        /*
-         * 已进入预警时间。
-         */
         if (now >= warningTime)
         {
-            foreach (var userId in recipientIds)
+            var dedupKey =
+                $"ticket:{ticket.Id}:" +
+                $"sla:{slaType}:warning";
+
+
+            var alreadySent =
+                await dbContext.Notifications
+                    .AsNoTracking()
+                    .AnyAsync(
+                        x =>
+                            x.DedupKey == dedupKey,
+                        cancellationToken
+                    );
+
+
+            if (alreadySent)
             {
-                await notificationService.AddAsync(
-                    userId: userId,
-                    type: "SlaWarning",
-                    title: $"工单{slaName}即将超时",
-                    content:
-                        $"工单 {ticket.TicketNo} 即将超过{slaName} SLA，请及时处理。",
-                    level: "Warning",
-                    targetUrl:
-                        $"/tickets?ticketId={ticket.Id}",
-                    dedupKey:
-                        $"ticket:{ticket.Id}:sla:{slaType}:warning");
+                return;
             }
+
+
+            await notificationEventService.PublishAsync(
+                new NotificationEventRequest
+                {
+                    EventKey =
+                        NotificationEventKeys
+                            .TicketSlaWarning,
+
+                    Context =
+                        new NotificationRecipientContext
+                        {
+                            TicketId =
+                                ticket.Id
+                        },
+
+                    Title =
+                        $"工单{slaName}即将超时",
+
+                    Content =
+                        $"工单 {ticket.TicketNo} " +
+                        $"即将超过{slaName} SLA，请及时处理。",
+
+                    Level =
+                        "Warning",
+
+                    TargetUrl =
+                        $"/tickets?ticketId={ticket.Id}",
+
+                    DedupKey =
+                        dedupKey,
+
+                    NotificationType =
+                        "SlaWarning"
+                },
+                cancellationToken
+            );
         }
     }
 }

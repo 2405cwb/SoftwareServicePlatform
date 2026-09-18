@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   Boxes,
@@ -467,13 +467,6 @@ function MainLayout() {
             <NavLink to="/sla-settings" className="sidebar-menu-item">
               <SlidersHorizontal size={18} />
               <span>SLA 设置</span>
-            </NavLink>
-          )}
-
-          {hasRole(currentUser, "Admin") && (
-            <NavLink to="/notification-settings" className="sidebar-menu-item">
-              <Bell size={18} />
-              <span>通知策略</span>
             </NavLink>
           )}
         </aside>

@@ -1,4 +1,4 @@
-﻿import { Route, Routes } from "react-router-dom";
+import { Route, Routes } from "react-router-dom";
 import "./App.css";
 import "./styles/upgrade.css";
 
@@ -19,7 +19,6 @@ import TicketPage from "./pages/TicketPage";
 import DashboardPage from "./pages/DashboardPage";
 import DownloadRecordPage from "./pages/DownloadRecordPage";
 import SlaSettingsPage from "./pages/SlaSettingsPage";
-import NotificationSettingsPage from "./pages/NotificationSettingsPage";
 
 function App() {
   return (
@@ -46,10 +45,6 @@ function App() {
           <Route element={<RequireRole allowedRoles={["Admin"]} />}>
             <Route path="/users" element={<UserPage />} />
             <Route path="/sla-settings" element={<SlaSettingsPage />} />
-            <Route
-              path="/notification-settings"
-              element={<NotificationSettingsPage />}
-            />
           </Route>
 
           <Route element={<RequireRole allowedRoles={["Admin", "Support"]} />}>

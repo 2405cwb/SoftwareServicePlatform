@@ -12,7 +12,35 @@ interface CustomerOption {
 
   isEnabled: boolean;
 }
+/*
+ * ======================================
+ * 外部通知账号绑定
+ * ======================================
+ *
+ * 当前第一版只使用 DingTalk。
+ *
+ * 后端接口：
+ *
+ * GET
+ * /api/external-user-bindings/user/{userId}
+ */
+interface ExternalUserBindingItem {
+  id: number;
 
+  userId: number;
+
+  channel: string;
+
+  externalUserId: string | null;
+
+  mobile: string | null;
+
+  isEnabled: boolean;
+
+  createdAt: string;
+
+  updatedAt: string;
+}
 /*
  * 后端 GET /api/users 返回的用户结构。
  */
@@ -134,6 +162,80 @@ function UserPage() {
    * 防止重复提交。
    */
   const [resetPasswordSaving, setResetPasswordSaving] = useState(false);
+
+  /*
+   * ======================================
+   * 钉钉账号绑定相关状态
+   * ======================================
+   */
+
+  /*
+   * 当前正在配置钉钉账号的系统用户。
+   *
+   * null：
+   * 没有打开钉钉绑定编辑区域。
+   */
+  const [dingTalkBindingUser, setDingTalkBindingUser] =
+    useState<UserItem | null>(null);
+
+  /*
+   * 钉钉绑定手机号。
+   *
+   * 注意：
+   *
+   * 这里不是 Users.Phone。
+   *
+   * Users.Phone：
+   * 系统中的联系电话。
+   *
+   * DingTalk Mobile：
+   * 钉钉账号实际绑定的手机号。
+   */
+  const [dingTalkMobile, setDingTalkMobile] = useState("");
+
+  /*
+   * 钉钉外部用户ID。
+   *
+   * 当前群机器人第一版主要使用手机号 @。
+   *
+   * 这个字段先保留，
+   * 后面如果接入钉钉通讯录 API 可以直接使用。
+   */
+  const [dingTalkExternalUserId, setDingTalkExternalUserId] = useState("");
+
+  /*
+   * 当前绑定是否启用。
+   */
+  const [dingTalkBindingEnabled, setDingTalkBindingEnabled] = useState(true);
+
+  /*
+   * 正在读取绑定。
+   */
+  const [dingTalkBindingLoading, setDingTalkBindingLoading] = useState(false);
+
+  /*
+   * 正在保存绑定。
+   */
+  const [dingTalkBindingSaving, setDingTalkBindingSaving] = useState(false);
+
+  /*
+   * ======================================
+   * 用户列表中的钉钉绑定状态
+   * ======================================
+   *
+   * 这里保存所有 DingTalk 绑定。
+   *
+   * 用途：
+   * 用户列表直接显示：
+   *
+   * 可 @
+   * 未绑定
+   * 已停用
+   * 缺少手机号
+   */
+  const [dingTalkBindings, setDingTalkBindings] = useState<
+    ExternalUserBindingItem[]
+  >([]);
   /*
    * 系统客户列表。
    *
@@ -153,6 +255,11 @@ function UserPage() {
    * 查询用户
    * ======================================
    */
+  /*
+   * ======================================
+   * 查询用户 + 钉钉绑定状态
+   * ======================================
+   */
   async function loadUsers() {
     try {
       setLoading(true);
@@ -160,21 +267,54 @@ function UserPage() {
       setErrorMessage("");
 
       /*
-       * apiFetch 会自动携带：
+       * 用户列表和钉钉绑定没有前后依赖，
+       * 所以并行请求。
        *
-       * Authorization: Bearer xxx
+       * 比：
+       *
+       * await users
+       * await bindings
+       *
+       * 更快一点。
        */
-      const response = await apiFetch("/api/users");
+      const [usersResponse, bindingsResponse] = await Promise.all([
+        apiFetch("/api/users"),
 
-      if (!response.ok) {
-        const errorText = await response.text();
+        apiFetch("/api/external-user-bindings?channel=DingTalk"),
+      ]);
 
-        throw new Error(errorText || `获取用户失败：${response.status}`);
+      /*
+       * ======================================
+       * 用户列表请求检查
+       * ======================================
+       */
+      if (!usersResponse.ok) {
+        const errorText = await usersResponse.text();
+
+        throw new Error(errorText || `获取用户失败：${usersResponse.status}`);
       }
 
-      const data = (await response.json()) as UserItem[];
+      /*
+       * ======================================
+       * 钉钉绑定请求检查
+       * ======================================
+       */
+      if (!bindingsResponse.ok) {
+        const errorText = await bindingsResponse.text();
 
-      setUsers(data);
+        throw new Error(
+          errorText || `获取钉钉绑定失败：${bindingsResponse.status}`,
+        );
+      }
+
+      const usersData = (await usersResponse.json()) as UserItem[];
+
+      const bindingsData =
+        (await bindingsResponse.json()) as ExternalUserBindingItem[];
+
+      setUsers(usersData);
+
+      setDingTalkBindings(bindingsData);
     } catch (error) {
       console.error("加载用户列表失败：", error);
 
@@ -434,7 +574,185 @@ function UserPage() {
       setResetPasswordSaving(false);
     }
   }
+  /*
+   * ======================================
+   * 打开钉钉账号绑定区域
+   * ======================================
+   */
+  async function openDingTalkBinding(user: UserItem) {
+    /*
+     * 先记录当前用户。
+     *
+     * 页面会显示：
+     *
+     * 当前用户：张三
+     */
+    setDingTalkBindingUser(user);
 
+    /*
+     * 每次打开先清空旧状态。
+     *
+     * 防止：
+     *
+     * 上一次编辑张三
+     * ↓
+     * 再打开李四
+     * ↓
+     * 短暂显示张三手机号
+     */
+    setDingTalkMobile("");
+
+    setDingTalkExternalUserId("");
+
+    setDingTalkBindingEnabled(true);
+
+    try {
+      setDingTalkBindingLoading(true);
+
+      /*
+       * 查询当前用户所有外部平台绑定。
+       */
+      const response = await apiFetch(
+        `/api/external-user-bindings/user/${user.id}`,
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+
+        throw new Error(errorText || `读取钉钉绑定失败：${response.status}`);
+      }
+
+      const bindings = (await response.json()) as ExternalUserBindingItem[];
+
+      /*
+       * 当前只取 DingTalk。
+       *
+       * 后面即使这个接口同时返回：
+       *
+       * WeCom
+       * Feishu
+       *
+       * 这里也不会互相干扰。
+       */
+      const dingTalkBinding = bindings.find(
+        (item) => item.channel === "DingTalk",
+      );
+
+      /*
+       * 没有绑定属于正常情况。
+       *
+       * 说明管理员是第一次配置。
+       */
+      if (!dingTalkBinding) {
+        return;
+      }
+
+      setDingTalkMobile(dingTalkBinding.mobile ?? "");
+
+      setDingTalkExternalUserId(dingTalkBinding.externalUserId ?? "");
+
+      setDingTalkBindingEnabled(dingTalkBinding.isEnabled);
+    } catch (error) {
+      console.error("加载钉钉绑定失败：", error);
+
+      alert(error instanceof Error ? error.message : "加载钉钉绑定失败");
+    } finally {
+      setDingTalkBindingLoading(false);
+    }
+  } /*
+   * ======================================
+   * 保存钉钉账号绑定
+   * ======================================
+   */
+  async function saveDingTalkBinding() {
+    /*
+     * 没有选中用户时不执行。
+     */
+    if (dingTalkBindingUser === null) {
+      return;
+    }
+
+    /*
+     * 当前第一版主要依赖手机号
+     * 做钉钉群机器人 @。
+     *
+     * 如果绑定启用，
+     * 至少需要填写手机号
+     * 或 ExternalUserId。
+     *
+     * 后端还有第二层校验。
+     */
+    if (
+      dingTalkBindingEnabled &&
+      !dingTalkMobile.trim() &&
+      !dingTalkExternalUserId.trim()
+    ) {
+      alert("启用钉钉绑定时，请至少填写钉钉手机号或外部用户ID");
+
+      return;
+    }
+
+    try {
+      setDingTalkBindingSaving(true);
+
+      /*
+       * 调用后端 Upsert 接口。
+       *
+       * 第一次：
+       * 创建绑定。
+       *
+       * 已经存在：
+       * 更新绑定。
+       */
+      const response = await apiFetch(
+        `/api/external-user-bindings/${dingTalkBindingUser.id}/DingTalk`,
+        {
+          method: "PUT",
+
+          headers: {
+            "Content-Type": "application/json",
+          },
+
+          body: JSON.stringify({
+            externalUserId: dingTalkExternalUserId.trim() || null,
+
+            mobile: dingTalkMobile.trim() || null,
+
+            isEnabled: dingTalkBindingEnabled,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+
+        throw new Error(errorText || `保存钉钉绑定失败：${response.status}`);
+      }
+
+      alert("钉钉账号绑定保存成功");
+      /*
+       * 重新读取用户和钉钉绑定，
+       * 让列表里的状态立即更新。
+       *
+       * 不需要用户手动刷新页面。
+       */
+      await loadUsers();
+      /*
+       * 保存后关闭编辑区域。
+       */
+      setDingTalkBindingUser(null);
+
+      setDingTalkMobile("");
+
+      setDingTalkExternalUserId("");
+    } catch (error) {
+      console.error("保存钉钉绑定失败：", error);
+
+      alert(error instanceof Error ? error.message : "保存钉钉绑定失败");
+    } finally {
+      setDingTalkBindingSaving(false);
+    }
+  }
   function editUser(user: UserItem) {
     setEditingUserId(user.id);
 
@@ -472,6 +790,90 @@ function UserPage() {
     loadCustomers();
   }, []);
 
+  /*
+   * ======================================
+   * 计算钉钉绑定实际状态
+   * ======================================
+   *
+   * 当前 DingTalk Sender 真正 @ 人
+   * 使用的是：
+   *
+   * ExternalUserBinding.Mobile
+   *
+   * 所以：
+   *
+   * 有绑定记录 ≠ 一定可以 @。
+   */
+  function getDingTalkStatus(user: UserItem) {
+    /*
+     * Customer 当前主要使用站内通知，
+     * 不参与公司内部钉钉通知。
+     */
+    if (user.role === "Customer") {
+      return {
+        text: "不适用",
+
+        className: "dingtalk-status-neutral",
+      };
+    }
+
+    const binding = getDingTalkBinding(user.id);
+
+    /*
+     * 完全没有绑定记录。
+     */
+    if (!binding) {
+      return {
+        text: "未绑定",
+
+        className: "dingtalk-status-missing",
+      };
+    }
+
+    /*
+     * 管理员主动停用了绑定。
+     */
+    if (!binding.isEnabled) {
+      return {
+        text: "已停用",
+
+        className: "dingtalk-status-disabled",
+      };
+    }
+
+    /*
+     * 当前钉钉机器人 @ 指定用户
+     * 依赖 Mobile。
+     */
+    if (!binding.mobile || !binding.mobile.trim()) {
+      return {
+        text: "缺手机号",
+
+        className: "dingtalk-status-warning",
+      };
+    }
+
+    /*
+     * 有效绑定 + 有手机号：
+     *
+     * 当前已经具备真正 @ 人的条件。
+     */
+    return {
+      text: "可 @",
+
+      className: "dingtalk-status-ready",
+    };
+  }
+  /*
+   * ======================================
+   * 获取某个用户的 DingTalk 绑定
+   * ======================================
+   */
+  function getDingTalkBinding(userId: number) {
+    return dingTalkBindings.find(
+      (binding) => binding.userId === userId && binding.channel === "DingTalk",
+    );
+  }
   /*
    * ======================================
    * 角色英文 → 中文
@@ -776,6 +1178,127 @@ function UserPage() {
           </div>
         </div>
       )}
+      {/* ======================================
+    钉钉账号绑定
+    ====================================== */}
+      {dingTalkBindingUser !== null && (
+        <div className="form-box">
+          <h3>钉钉通知账号绑定</h3>
+
+          <div className="form-section">
+            <h4>
+              当前用户：
+              {dingTalkBindingUser.displayName || dingTalkBindingUser.username}
+            </h4>
+
+            {dingTalkBindingLoading ? (
+              <div className="empty-state">正在读取钉钉绑定...</div>
+            ) : (
+              <div className="form-grid">
+                {/* 系统账号 */}
+                <div className="form-item">
+                  <label>系统账号：</label>
+
+                  <input
+                    type="text"
+                    value={dingTalkBindingUser.username}
+                    disabled
+                  />
+                </div>
+
+                {/* 用户角色 */}
+                <div className="form-item">
+                  <label>用户角色：</label>
+
+                  <input
+                    type="text"
+                    value={getRoleName(dingTalkBindingUser.role)}
+                    disabled
+                  />
+                </div>
+
+                {/* 钉钉手机号 */}
+                <div className="form-item">
+                  <label>钉钉手机号：</label>
+
+                  <input
+                    type="text"
+                    placeholder="请输入该用户钉钉绑定手机号"
+                    value={dingTalkMobile}
+                    onChange={(event) => setDingTalkMobile(event.target.value)}
+                  />
+
+                  <div className="table-secondary-text">
+                    用于钉钉群机器人 @ 对应用户
+                  </div>
+                </div>
+
+                {/* 钉钉 UserId */}
+                <div className="form-item">
+                  <label>钉钉 UserId：</label>
+
+                  <input
+                    type="text"
+                    placeholder="当前可以暂不填写"
+                    value={dingTalkExternalUserId}
+                    onChange={(event) =>
+                      setDingTalkExternalUserId(event.target.value)
+                    }
+                  />
+
+                  <div className="table-secondary-text">
+                    为后续接入钉钉通讯录能力预留
+                  </div>
+                </div>
+
+                {/* 绑定状态 */}
+                <div className="form-item">
+                  <label>绑定状态：</label>
+
+                  <select
+                    value={dingTalkBindingEnabled ? "enabled" : "disabled"}
+                    onChange={(event) =>
+                      setDingTalkBindingEnabled(
+                        event.target.value === "enabled",
+                      )
+                    }
+                  >
+                    <option value="enabled">启用</option>
+
+                    <option value="disabled">停用</option>
+                  </select>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="form-buttons">
+            <button
+              type="button"
+              className="primary-button"
+              disabled={dingTalkBindingLoading || dingTalkBindingSaving}
+              onClick={() => void saveDingTalkBinding()}
+            >
+              {dingTalkBindingSaving ? "正在保存..." : "保存钉钉绑定"}
+            </button>
+
+            <button
+              type="button"
+              className="normal-button"
+              disabled={dingTalkBindingSaving}
+              onClick={() => {
+                setDingTalkBindingUser(null);
+
+                setDingTalkMobile("");
+
+                setDingTalkExternalUserId("");
+              }}
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
       <SearchBar
         value={keyword}
         placeholder="搜索用户名、姓名、客户或邮箱"
@@ -813,6 +1336,8 @@ function UserPage() {
             <div>联系方式</div>
 
             <div>状态</div>
+
+            <div>钉钉</div>
 
             <div>最后登录</div>
 
@@ -888,7 +1413,20 @@ function UserPage() {
                   {user.isEnabled ? "启用" : "停用"}
                 </span>
               </div>
+              {/* ======================================
+    钉钉通知绑定状态
+    ====================================== */}
+              <div>
+                {(() => {
+                  const status = getDingTalkStatus(user);
 
+                  return (
+                    <span className={"dingtalk-status " + status.className}>
+                      {status.text}
+                    </span>
+                  );
+                })()}
+              </div>
               {/* 最后登录 */}
               <div>{formatDate(user.lastLoginAt)}</div>
 
@@ -923,6 +1461,24 @@ function UserPage() {
                 >
                   重置密码
                 </button>
+                {/* ======================================
+    钉钉通知绑定
+    ======================================
+
+    Customer 用户当前主要使用站内通知，
+    不需要绑定公司内部钉钉。
+
+    所以第一版只给内部用户显示。
+*/}
+                {user.role !== "Customer" && (
+                  <button
+                    type="button"
+                    className="normal-button"
+                    onClick={() => void openDingTalkBinding(user)}
+                  >
+                    钉钉绑定
+                  </button>
+                )}
               </div>
             </div>
           ))}
