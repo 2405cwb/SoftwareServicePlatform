@@ -606,159 +606,205 @@ namespace SoftwareServicePlatform.Api.Controllers
                 DateTime.UtcNow;
 
             /*
-  * ==========================================
-  * 新工单通知售后
-  * ==========================================
-  *
-  * Customer 在门户提交新工单后，
-  * 所有当前启用的 Support 用户
-  * 都应该收到一条站内通知。
-  */
+     * ==========================================
+     * 15. 保存正式工单编号
+     * ==========================================
+     *
+     * 前面第一次 SaveChangesAsync()
+     * 是为了取得数据库生成的 ticket.Id。
+     *
+     * 现在 TicketNo 已经根据 Id 生成完成，
+     * 所以必须先把最终业务数据保存成功。
+     *
+     * 非常重要：
+     *
+     * NotificationEventService 后面会通过 TicketId
+     * 再次从数据库读取：
+     *
+     * CustomerId
+     * AssignedToUserId
+     *
+     * 因此必须：
+     *
+     * 先保存业务
+     *     ↓
+     * 再发布通知事件
+     */
+            await _dbContext.SaveChangesAsync();
 
-            var supportUserIds =
-                await _dbContext.Users
 
-                    .AsNoTracking()
+            /*
+             * ==========================================
+             * 16. 发布“客户创建工单”通知事件
+             * ==========================================
+             *
+             * 从这里开始，
+             * CreateTicket 不再自己查询所有 Support。
+             *
+             * 数据库中的通知策略：
+             *
+             * EventKey：
+             * Ticket.Created
+             *
+             * RecipientStrategy：
+             * Support
+             *
+             * 所以 NotificationRecipientResolver
+             * 会自动查询所有：
+             *
+             * IsEnabled = true
+             * Role = Support
+             *
+             * 的用户。
+             *
+             *
+             * 同样，
+             * Controller 也不再决定：
+             *
+             * 是否发送钉钉
+             * 是否发送站内通知
+             * 是否 @
+             *
+             * 全部由：
+             *
+             * NotificationPolicies
+             * NotificationPolicyChannels
+             *
+             * 控制。
+             */
+            await _notificationEventService.PublishAsync(
+                new NotificationEventRequest
+                {
+                    /*
+                     * 系统统一业务事件编码。
+                     *
+                     * 不再直接手写：
+                     *
+                     * "Ticket.Created"
+                     */
+                    EventKey =
+                        NotificationEventKeys
+                            .TicketCreated,
 
-                    .Where(
-                        x =>
-                            x.IsEnabled
-                            &&
-                            x.Role == "Support"
-                    )
 
-                    .Select(
-                        x => x.Id
-                    )
-
-                    .ToListAsync();
-
-
-            foreach (var supportUserId in supportUserIds)
-            {
-                await _notificationService.AddAsync(
                     /*
                      * ==========================================
-                     * 站内通知
+                     * 当前通知关联的业务对象
                      * ==========================================
                      *
-                     * 每一个 Support 用户仍然拥有
-                     * 自己独立的一条 Notification。
+                     * Resolver 通过 TicketId
+                     * 可以继续获取：
+                     *
+                     * CustomerId
+                     * AssignedToUserId
+                     *
+                     * 当前策略是 Support，
+                     * 虽然暂时不需要这些字段，
+                     * 但统一保持相同的上下文结构。
                      */
-                    userId: supportUserId,
+                    Context =
+                        new NotificationRecipientContext
+                        {
+                            TicketId =
+                                ticket.Id
+                        },
 
-                    type: "TicketCreated",
 
-            title: $"收到新的客户工单：{ticket.TicketNo}",
+                    /*
+                     * ==========================================
+                     * 通知标题
+                     * ==========================================
+                     */
+                    Title =
+                        $"收到新的客户工单：{ticket.TicketNo}",
 
-                   content:
-    BuildTicketCreatedNotificationContent(
-        ticket,
-        customer.Name,
-        software.Name
-    ),
 
-                    level: "Info",
+                    /*
+                     * ==========================================
+                     * 通知正文
+                     * ==========================================
+                     *
+                     * 继续复用你现在已经写好的方法。
+                     *
+                     * 通知内容属于业务表达，
+                     * 暂时仍然由业务代码负责。
+                     */
+                    Content =
+                        BuildTicketCreatedNotificationContent(
+                            ticket,
+                            customer.Name,
+                            software.Name
+                        ),
 
-                    targetUrl:
+
+                    /*
+                     * ==========================================
+                     * Level
+                     * ==========================================
+                     *
+                     * 这里故意不填写 Level。
+                     *
+                     * null：
+                     * NotificationEventService 自动使用：
+                     *
+                     * NotificationPolicy.DefaultLevel
+                     *
+                     * 当前 Ticket.Created
+                     * 默认就是 Info。
+                     *
+                     * 这样通知级别也开始逐步配置化。
+                     */
+
+
+                    /*
+                     * 点击站内通知后，
+                     * 直接进入这张工单。
+                     */
+                    TargetUrl =
                         $"/tickets?ticketId={ticket.Id}",
 
 
                     /*
                      * ==========================================
-                     * 站内通知去重 Key
+                     * 通知去重
                      * ==========================================
                      *
-                     * 每个 Support 用户必须不同，
-                     * 因为数据库中每个人都需要一条通知。
+                     * 新架构不需要再写：
+                     *
+                     * ticket:15:created:support:3
+                     * ticket:15:created:support:5
+                     *
+                     * 因为 Notification 表的唯一索引是：
+                     *
+                     * UserId + DedupKey
+                     *
+                     * 所以所有接收人都可以使用完全相同的：
+                     *
+                     * ticket:15:created
+                     *
+                     * UserId 不同，
+                     * 数据库仍然允许每个人各保存一条。
                      */
-                    dedupKey:
-                        $"ticket:{ticket.Id}:created:support:{supportUserId}",
+                    DedupKey =
+                        $"ticket:{ticket.Id}:created",
 
 
                     /*
                      * ==========================================
-                     * 外部通知投递策略
+                     * 兼容现有 Notification.Type
                      * ==========================================
                      *
-                     * 这里明确告诉 NotificationService：
+                     * 现有历史通知使用：
                      *
-                     * 除了数据库 + SignalR，
-                     * 这次还需要发送到钉钉。
+                     * TicketCreated
+                     *
+                     * 第一阶段继续保持，
+                     * 避免同时修改前端。
                      */
-                    deliveryOptions:
-                        new NotificationDeliveryOptions
-                        {
-                            /*
-                             * 当前先发送钉钉。
-                             *
-                             * 以后如果增加企业微信：
-                             *
-                             * ExternalChannels =
-                             * {
-                             *     "DingTalk",
-                             *     "WeCom"
-                             * }
-                             */
-                            ExternalChannels =
-                            {
-                    "DingTalk"
-                            },
-
-
-                            /*
-                             * 未来希望在钉钉中 @
-                             * 当前这条通知对应的 Support 用户。
-                             *
-                             * 现在我们还没有建立：
-                             *
-                             * 系统 UserId
-                             *      ↓
-                             * 钉钉 UserId
-                             *
-                             * 的绑定关系，
-                             * 所以目前这个字段只是先把意图保留下来。
-                             */
-                            MentionRecipient = true,
-
-
-                            /*
-                             * ======================================
-                             * 非常重要：外部事件 Key
-                             * ======================================
-                             *
-                             * 假设系统有：
-                             *
-                             * Support 张三
-                             * Support 李四
-                             * Support 王五
-                             *
-                             * 那么数据库会产生 3 条站内通知。
-                             *
-                             * 但钉钉群里绝对不能发 3 次：
-                             *
-                             * “收到新的客户工单”
-                             *
-                             * 所以三条通知使用完全相同的
-                             * ExternalEventKey。
-                             *
-                             * NotificationService 会把它们合并，
-                             * 最终钉钉只发送 1 次。
-                             */
-                            ExternalEventKey =
-                                $"ticket:{ticket.Id}:created"
-                        }
-                );
-            }
-            /*
-             * ==========================================
-             * 15. 第二次保存正式工单编号
-             * ==========================================
-             */
-
-            await _dbContext.SaveChangesAsync();
-
-            await _notificationService.PushPendingAsync();
+                    NotificationType =
+                        "TicketCreated"
+                }
+            );
             /*
              * ==========================================
              * 16. 返回前端
@@ -2050,77 +2096,38 @@ namespace SoftwareServicePlatform.Api.Controllers
      record
  );
 
+            /*
+ * ==========================================
+ * 回复通知
+ * ==========================================
+ *
+ * 当前开始逐步迁移到新的通知策略系统。
+ *
+ * 本轮只迁移：
+ *
+ * Customer → 公司人员
+ *
+ * 公司人员 → Customer
+ *
+ * 暂时继续保留旧通知逻辑，
+ * 下一轮再迁移。
+ */
+            var isCustomerReply =
+                currentUser.Role == "Customer";
+
 
             /*
              * ==========================================
-             * 回复通知
+             * 公司人员公开回复客户
              * ==========================================
-             */
-
-            // 客户回复公司人员
-            if (currentUser.Role == "Customer")
-            {
-                /*
-                 * 已经有处理人：
-                 * 直接通知当前处理人。
-                 */
-                if (ticket.AssignedToUserId.HasValue)
-                {
-                    await _notificationService.AddAsync(
-                        userId: ticket.AssignedToUserId.Value,
-                        type: "TicketReply",
-                        title: "客户回复了工单",
-                        content:
-                            $"{currentUser.DisplayName}回复了工单 " +
-                            $"{ticket.TicketNo}：{ticket.Title}",
-                        level: "Info",
-                        targetUrl:
-                            $"/tickets?ticketId={ticket.Id}",
-                        dedupKey: null
-                    );
-                }
-                else
-                {
-                    /*
-                     * 工单尚未分配：
-                     * 通知所有启用的售后人员。
-                     */
-                    var supportUserIds =
-                        await _dbContext.Users
-                            .AsNoTracking()
-                            .Where(x =>
-                                x.IsEnabled
-                                &&
-                                x.Role == "Support")
-                            .Select(x => x.Id)
-                            .ToListAsync();
-
-
-                    foreach (var supportUserId in supportUserIds)
-                    {
-                        await _notificationService.AddAsync(
-                            userId: supportUserId,
-                            type: "TicketReply",
-                            title: "客户回复了未分配工单",
-                            content:
-                                $"{currentUser.DisplayName}回复了工单 " +
-                                $"{ticket.TicketNo}：{ticket.Title}",
-                            level: "Info",
-                            targetUrl:
-                                $"/tickets?ticketId={ticket.Id}",
-                            dedupKey: null
-                        );
-                    }
-                }
-            }
-
-
-            /*
-             * 公司人员公开回复客户。
              *
+             * 这一部分暂时仍使用旧通知逻辑。
+             *
+             * 注意：
              * 内部备注绝对不能通知客户。
              */
-            else if (!request.IsInternal)
+            if (!isCustomerReply &&
+                !request.IsInternal)
             {
                 var customerUserIds =
                     await _dbContext.Users
@@ -2130,31 +2137,201 @@ namespace SoftwareServicePlatform.Api.Controllers
                             &&
                             x.Role == "Customer"
                             &&
-                            x.CustomerId == ticket.CustomerId)
+                            x.CustomerId ==
+                                ticket.CustomerId
+                        )
                         .Select(x => x.Id)
                         .ToListAsync();
 
 
-                foreach (var customerUserId in customerUserIds)
+                foreach (var customerUserId
+                         in customerUserIds)
                 {
                     await _notificationService.AddAsync(
-                        userId: customerUserId,
-                        type: "TicketReply",
-                        title: "您的工单有新的回复",
+                        userId:
+                            customerUserId,
+
+                        type:
+                            "TicketReply",
+
+                        title:
+                            "您的工单有新的回复",
+
                         content:
                             $"{currentUser.DisplayName}回复了工单 " +
                             $"{ticket.TicketNo}：{ticket.Title}",
-                        level: "Info",
+
+                        level:
+                            "Info",
+
                         targetUrl:
                             $"/tickets?ticketId={ticket.Id}",
-                        dedupKey: null
+
+                        dedupKey:
+                            null
                     );
                 }
             }
 
 
             await _dbContext.SaveChangesAsync();
-            await _notificationService.PushPendingAsync();
+            /*
+ * ==========================================
+ * 客户追加回复通知
+ * ==========================================
+ *
+ * 这里只处理：
+ *
+ * Customer → 公司
+ *
+ * 通知给谁已经不由 Controller 判断。
+ *
+ * NotificationPolicy 中配置：
+ *
+ * EventKey：
+ * Ticket.CustomerReplied
+ *
+ * RecipientStrategy：
+ * AssigneeOrSupport
+ *
+ *
+ * NotificationRecipientResolver 会自动处理：
+ *
+ * 有 AssignedToUserId
+ *     ↓
+ * 通知当前处理人
+ *
+ * 没有 AssignedToUserId
+ *     ↓
+ * 通知所有 Support
+ */
+            if (isCustomerReply)
+            {
+                await _notificationEventService.PublishAsync(
+                    new NotificationEventRequest
+                    {
+                        /*
+                         * 业务事件。
+                         */
+                        EventKey =
+                            NotificationEventKeys
+                                .TicketCustomerReplied,
+
+
+                        /*
+                         * Resolver 根据 TicketId
+                         * 查询当前处理人。
+                         */
+                        Context =
+                            new NotificationRecipientContext
+                            {
+                                TicketId =
+                                    ticket.Id
+                            },
+
+
+                        /*
+                         * 不再区分：
+                         *
+                         * “客户回复了工单”
+                         *
+                         * 和：
+                         *
+                         * “客户回复了未分配工单”
+                         *
+                         * 因为“通知谁”已经由策略负责。
+                         */
+                        Title =
+                            $"客户回复了工单：{ticket.TicketNo}",
+
+
+                        /*
+                         * 当前先保持消息简洁。
+                         *
+                         * 完整回复内容仍然可以进入
+                         * 工单工作台查看。
+                         */
+                        Content =
+                            $"{currentUser.DisplayName}回复了工单 " +
+                            $"{ticket.TicketNo}：{ticket.Title}",
+
+
+                        /*
+                         * 不指定 Level。
+                         *
+                         * 自动使用：
+                         *
+                         * NotificationPolicy.DefaultLevel
+                         *
+                         * 当前默认为 Info。
+                         */
+
+
+                        TargetUrl =
+                            $"/tickets?ticketId={ticket.Id}",
+
+
+                        /*
+                         * ==========================================
+                         * 去重 Key
+                         * ==========================================
+                         *
+                         * 这里使用 record.Id 非常合适。
+                         *
+                         * 因为客户每回复一次，
+                         * 都会产生一条新的 TicketRecord。
+                         *
+                         * 例如：
+                         *
+                         * ticket:15:customer-reply:81
+                         * ticket:15:customer-reply:94
+                         *
+                         * 每次回复都是独立业务事件，
+                         * 但同一次回复不会重复通知。
+                         */
+                        DedupKey =
+                            $"ticket:{ticket.Id}:" +
+                            $"customer-reply:{record.Id}",
+
+
+                        /*
+                         * 暂时兼容当前前端已有的通知类型。
+                         */
+                        NotificationType =
+                            "TicketReply"
+                    }
+                );
+            }
+
+            /*
+  * ==========================================
+  * 旧通知体系临时兼容
+  * ==========================================
+  *
+  * Customer 回复已经由：
+  *
+  * NotificationEventService
+  *
+  * 自己完成：
+  *
+  * SaveChanges
+  * SignalR
+  * 外部通知
+  *
+  * 所以这里不需要再 Push。
+  *
+  * 只有尚未迁移的：
+  *
+  * 公司人员公开回复客户
+  *
+  * 才继续调用旧 PushPendingAsync。
+  */
+            if (!isCustomerReply &&
+                !request.IsInternal)
+            {
+                await _notificationService
+                    .PushPendingAsync();
+            }
 
             /*
              * ==========================================
