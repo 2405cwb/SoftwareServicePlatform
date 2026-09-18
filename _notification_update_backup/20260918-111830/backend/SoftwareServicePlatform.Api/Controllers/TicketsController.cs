@@ -2160,120 +2160,191 @@ namespace SoftwareServicePlatform.Api.Controllers
 
             /*
              * ==========================================
-             * 先保存本次 TicketRecord
-             * ==========================================
-             *
-             * 保存以后 record.Id 才真正生成。
-             *
-             * 后面的 DedupKey 使用 RecordId，
-             * 精确表示一次回复业务事件。
-             */
-            await _dbContext.SaveChangesAsync();
-
-
-            /*
-             * ==========================================
-             * 客户公开回复公司人员
-             * ==========================================
-             *
-             * EventKey：
-             * Ticket.CustomerReplied
-             *
-             * RecipientStrategy：
-             * AssigneeOrSupport
-             *
-             * 有处理人：
-             *     通知当前处理人
-             *
-             * 没有处理人：
-             *     自动通知所有 Support
-             */
-            if (isCustomerReply)
-            {
-                await _notificationEventService.PublishAsync(
-                    new NotificationEventRequest
-                    {
-                        EventKey =
-                            NotificationEventKeys
-                                .TicketCustomerReplied,
-
-                        Context =
-                            new NotificationRecipientContext
-                            {
-                                TicketId =
-                                    ticket.Id
-                            },
-
-                        Title =
-                            $"客户回复了工单：{ticket.TicketNo}",
-
-                        Content =
-                            $"{currentUser.DisplayName}回复了工单 " +
-                            $"{ticket.TicketNo}：{ticket.Title}",
-
-                        TargetUrl =
-                            $"/tickets?ticketId={ticket.Id}",
-
-                        DedupKey =
-                            $"ticket:{ticket.Id}:" +
-                            $"customer-reply:{record.Id}",
-
-                        NotificationType =
-                            "TicketReply"
-                    }
-                );
-            }
-
-
-            /*
-             * ==========================================
              * 公司人员公开回复客户
              * ==========================================
              *
-             * isStaffPublicReply：
+             * 这一部分暂时仍使用旧通知逻辑。
              *
-             * 非 Customer
-             * &&
-             * IsInternal == false
-             *
-             * 所以内部备注永远不会通知客户。
+             * 注意：
+             * 内部备注绝对不能通知客户。
              */
-            else if (isStaffPublicReply)
+            if (!isCustomerReply &&
+                !request.IsInternal)
             {
-                await _notificationEventService.PublishAsync(
-                    new NotificationEventRequest
-                    {
-                        EventKey =
-                            NotificationEventKeys
-                                .TicketStaffReplied,
+                var customerUserIds =
+                    await _dbContext.Users
+                        .AsNoTracking()
+                        .Where(x =>
+                            x.IsEnabled
+                            &&
+                            x.Role == "Customer"
+                            &&
+                            x.CustomerId ==
+                                ticket.CustomerId
+                        )
+                        .Select(x => x.Id)
+                        .ToListAsync();
 
-                        Context =
-                            new NotificationRecipientContext
-                            {
-                                TicketId =
-                                    ticket.Id
-                            },
 
-                        Title =
-                            $"您的工单有新的回复：{ticket.TicketNo}",
+                foreach (var customerUserId
+                         in customerUserIds)
+                {
+                    await _notificationService.AddAsync(
+                        userId:
+                            customerUserId,
 
-                        Content =
+                        type:
+                            "TicketReply",
+
+                        title:
+                            "您的工单有新的回复",
+
+                        content:
                             $"{currentUser.DisplayName}回复了工单 " +
                             $"{ticket.TicketNo}：{ticket.Title}",
 
-                        TargetUrl =
+                        level:
+                            "Info",
+
+                        targetUrl:
                             $"/tickets?ticketId={ticket.Id}",
 
-                        DedupKey =
-                            $"ticket:{ticket.Id}:" +
-                            $"staff-reply:{record.Id}",
-
-                        NotificationType =
-                            "TicketReply"
-                    }
-                );
+                        dedupKey:
+                            null
+                    );
+                }
             }
 
+
+            await _dbContext.SaveChangesAsync();
+            /*
+ * ==========================================
+ * 客户追加回复通知
+ * ==========================================
+ *
+ * 这里只处理：
+ *
+ * Customer → 公司
+ *
+ * 通知给谁已经不由 Controller 判断。
+ *
+ * NotificationPolicy 中配置：
+ *
+ * EventKey：
+ * Ticket.CustomerReplied
+ *
+ * RecipientStrategy：
+ * AssigneeOrSupport
+ *
+ *
+ * NotificationRecipientResolver 会自动处理：
+ *
+ * 有 AssignedToUserId
+ *     ↓
+ * 通知当前处理人
+ *
+ * 没有 AssignedToUserId
+ *     ↓
+ * 通知所有 Support
+ */
+if (isCustomerReply)
+{
+    await _notificationEventService.PublishAsync(
+        new NotificationEventRequest
+        {
+            /*
+             * 业务事件。
+             */
+            EventKey =
+                NotificationEventKeys
+                    .TicketCustomerReplied,
+
+
+            /*
+             * Resolver 根据 TicketId
+             * 查询当前处理人。
+             */
+            Context =
+                new NotificationRecipientContext
+                {
+                    TicketId =
+                        ticket.Id
+                },
+
+
+            /*
+             * 不再区分：
+             *
+             * “客户回复了工单”
+             *
+             * 和：
+             *
+             * “客户回复了未分配工单”
+             *
+             * 因为“通知谁”已经由策略负责。
+             */
+            Title =
+                $"客户回复了工单：{ticket.TicketNo}",
+
+
+            /*
+             * 当前先保持消息简洁。
+             *
+             * 完整回复内容仍然可以进入
+             * 工单工作台查看。
+             */
+            Content =
+                $"{currentUser.DisplayName}回复了工单 " +
+                $"{ticket.TicketNo}：{ticket.Title}",
+
+
+            /*
+             * 不指定 Level。
+             *
+             * 自动使用：
+             *
+             * NotificationPolicy.DefaultLevel
+             *
+             * 当前默认为 Info。
+             */
+
+
+            TargetUrl =
+                $"/tickets?ticketId={ticket.Id}",
+
+
+            /*
+             * ==========================================
+             * 去重 Key
+             * ==========================================
+             *
+             * 这里使用 record.Id 非常合适。
+             *
+             * 因为客户每回复一次，
+             * 都会产生一条新的 TicketRecord。
+             *
+             * 例如：
+             *
+             * ticket:15:customer-reply:81
+             * ticket:15:customer-reply:94
+             *
+             * 每次回复都是独立业务事件，
+             * 但同一次回复不会重复通知。
+             */
+            DedupKey =
+                $"ticket:{ticket.Id}:" +
+                $"customer-reply:{record.Id}",
+
+
+            /*
+             * 暂时兼容当前前端已有的通知类型。
+             */
+            NotificationType =
+                "TicketReply"
+        }
+    );
+}
+            await _notificationService.PushPendingAsync();
 
             /*
              * ==========================================

@@ -262,38 +262,6 @@ namespace SoftwareServicePlatform.Api.Services.NotificationPolicies
 
                 /*
                  * ==========================================
-                 * 工单第一次分配
-                 * ==========================================
-                 *
-                 * 原本没有处理人，
-                 * 现在第一次指定正式处理人。
-                 */
-                CreatePolicy(
-                    eventKey:
-                        NotificationEventKeys
-                            .TicketAssigned,
-
-                    eventName:
-                        "工单分配",
-
-                    description:
-                        "未分配工单第一次指定处理人后触发，通知新的处理人。",
-
-                    recipientStrategy:
-                        RecipientStrategies.Assignee,
-
-                    defaultLevel:
-                        "Info",
-
-                    dingTalkEnabled:
-                        true,
-
-                    mentionRecipient:
-                        true
-                ),
-
-                /*
-                 * ==========================================
                  * 工单重新分配
                  * ==========================================
                  */
@@ -358,41 +326,6 @@ namespace SoftwareServicePlatform.Api.Services.NotificationPolicies
                         true
                 ),
 
-
-                /*
-                 * ==========================================
-                 * 工作人员公开回复客户
-                 * ==========================================
-                 *
-                 * Admin / Support / Developer
-                 * 对客户增加可见回复后触发。
-                 *
-                 * 默认只发送站内通知，
-                 * 不在内部钉钉群重复广播。
-                 */
-                CreatePolicy(
-                    eventKey:
-                        NotificationEventKeys
-                            .TicketStaffReplied,
-
-                    eventName:
-                        "工作人员回复客户",
-
-                    description:
-                        "公司内部人员对工单进行公开回复后触发，通知该工单所属客户用户。",
-
-                    recipientStrategy:
-                        RecipientStrategies.Customer,
-
-                    defaultLevel:
-                        "Info",
-
-                    dingTalkEnabled:
-                        false,
-
-                    mentionRecipient:
-                        false
-                ),
 
                 /*
                  * ==========================================

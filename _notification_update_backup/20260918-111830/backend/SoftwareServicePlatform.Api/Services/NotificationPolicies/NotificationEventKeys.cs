@@ -71,15 +71,6 @@
 
 
         /// <summary>
-        /// 公司内部人员对客户进行公开回复。
-        ///
-        /// 注意：
-        /// 内部备注不属于这个事件。
-        /// </summary>
-        public const string TicketStaffReplied =
-            "Ticket.StaffReplied";
-
-        /// <summary>
         /// 已解决或关闭的工单被重新打开。
         /// </summary>
         public const string TicketReopened =
