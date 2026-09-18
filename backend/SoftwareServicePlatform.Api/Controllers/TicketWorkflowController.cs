@@ -22,6 +22,16 @@ public class TicketWorkflowController : ControllerBase
 {
     private readonly AppDbContext _dbContext;
     private readonly INotificationService _notificationService;
+
+    /// <summary>
+    /// 外部通知统一发送服务。
+    ///
+    /// 当前用于钉钉，
+    /// 后续企业微信、飞书等也走同一套接口。
+    /// </summary>
+    private readonly IExternalNotificationService
+        _externalNotificationService;
+
     private static readonly string[] Priorities =
     {
         "Low", "Normal", "High", "Urgent"
@@ -32,10 +42,11 @@ public class TicketWorkflowController : ControllerBase
         "WeChat", "Phone", "Email", "OnSite", "Internal"
     };
 
-    public TicketWorkflowController(AppDbContext dbContext, INotificationService notificationService)
+    public TicketWorkflowController(AppDbContext dbContext, INotificationService notificationService, IExternalNotificationService externalNotificationService)
     {
         _dbContext = dbContext;
         _notificationService = notificationService;
+        _externalNotificationService = externalNotificationService;
     }
 
     /// <summary>
@@ -450,13 +461,163 @@ public class TicketWorkflowController : ControllerBase
                                 ? "Warning"
                                 : "Info",
                     targetUrl:
-                        $"/tickets?ticketId={ticket.Id}",
-                    dedupKey:
-                             null
+                        $"/tickets?ticketId={ticket.Id}"
+
 );
         }
 
+        /*
+  * ==========================================
+  * 1. 先保存工单分诊结果
+  * ==========================================
+  *
+  * 包括：
+  *
+  * Priority
+  * AssignedToUserId
+  * SLA
+  * TicketRecord
+  * Notification
+  */
         await _dbContext.SaveChangesAsync();
+
+
+        /*
+         * ==========================================
+         * 2. 查询钉钉通知需要展示的完整信息
+         * ==========================================
+         *
+         * 当前 ticket 查询没有 Include：
+         *
+         * Customer
+         * Software
+         * AssignedToUser
+         *
+         * 所以这里重新投影一次。
+         *
+         * 同时这样做还有一个好处：
+         * 此时读取到的是数据库已经保存成功后的最终结果。
+         */
+        var ticketInfo =
+            await _dbContext.Tickets
+                .AsNoTracking()
+                .Where(x =>
+                    x.Id == ticket.Id)
+                .Select(x => new
+                {
+                    CustomerName =
+                        x.Customer.Name,
+
+                    SoftwareName =
+                        x.Software.Name,
+
+                    AssignedToName =
+                        x.AssignedToUser == null
+                            ? null
+                            : x.AssignedToUser.DisplayName,
+
+                    AssignedToRole =
+                        x.AssignedToUser == null
+                            ? null
+                            : x.AssignedToUser.Role
+                })
+                .FirstAsync();
+
+
+        /*
+         * ==========================================
+         * 3. 整理最终处理人文字
+         * ==========================================
+         *
+         * 不能直接使用局部变量 assignee。
+         *
+         * 因为重新分诊时，
+         * request 可能没有重新传处理人，
+         * 但工单数据库中其实已经存在处理人。
+         *
+         * 所以这里以数据库最终结果为准。
+         */
+        var assignedToText =
+            string.IsNullOrWhiteSpace(
+                ticketInfo.AssignedToName)
+                ? "暂未分配"
+                : ticketInfo.AssignedToName
+                  +
+                  (
+                      string.IsNullOrWhiteSpace(
+                          ticketInfo.AssignedToRole)
+                          ? string.Empty
+                          : $"（{GetRoleName(ticketInfo.AssignedToRole)}）"
+                  );
+
+
+        /*
+         * ==========================================
+         * 4. 分诊完成后发送钉钉
+         * ==========================================
+         *
+         * 注意：
+         *
+         * 这里不再依赖“处理人有没有变化”。
+         *
+         * 只要 Triage 接口执行成功，
+         * 就发送一次分诊结果通知。
+         */
+        var dingTalkSuccess =
+            await _externalNotificationService
+                .SendAsync(
+                    "DingTalk",
+
+                    new ExternalNotificationMessage
+                    {
+                        Title =
+                            $"工单分诊完成：{ticket.TicketNo}",
+
+                        Content =
+                            $"工单号：{ticket.TicketNo}\n" +
+                            $"客户：{ticketInfo.CustomerName}\n" +
+                            $"软件：{ticketInfo.SoftwareName}\n" +
+                            $"标题：{ticket.Title}\n" +
+                            $"优先级：{GetPriorityName(ticket.Priority)}\n" +
+                            $"处理人：{assignedToText}\n" +
+                            $"分诊人：{currentUser.DisplayName}",
+
+                        Level =
+                            ticket.Priority is "Urgent" or "High"
+                                ? "Warning"
+                                : "Info",
+
+                        TargetUrl =
+                            $"/tickets?ticketId={ticket.Id}",
+
+                        /*
+                         * @ 功能目前还没做，
+                         * 所以现在不需要设置真正的 @ 信息。
+                         */
+                        MentionAll =
+                            false
+                    }
+                );
+
+
+        /*
+         * 钉钉失败不能导致已经完成的工单分诊失败。
+         *
+         * DingTalk Sender 本身会记录具体错误日志，
+         * 所以这里只需要继续后面的业务流程即可。
+         */
+        if (!dingTalkSuccess)
+        {
+            // 当前不用 return BadRequest。
+            // 分诊本身已经成功。
+        }
+
+
+        /*
+         * ==========================================
+         * 5. 最后推送站内 SignalR
+         * ==========================================
+         */
         await _notificationService.PushPendingAsync();
         return Ok(new
         {
