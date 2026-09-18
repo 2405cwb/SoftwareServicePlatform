@@ -2222,7 +2222,7 @@ button {
    ============================================================ */
 
 .user-table {
-  min-width: 1180px;
+  min-width: 1450px;
 
   overflow: hidden;
 
@@ -2240,15 +2240,16 @@ button {
   display: grid;
 
   grid-template-columns:
-    130px
+      130px
     130px
     90px
+    170px
     180px
-    190px
     80px
-    170px
-    170px
-    190px;
+    90px
+    155px
+    155px
+    220px;
 
   align-items: center;
 }
@@ -5870,4 +5871,140 @@ tbody tr:hover {
   .notification-channel-row {
     grid-template-columns: 1fr 1fr;
   }
+}
+/* ============================================================
+   通知策略 - 实际效果说明
+   ============================================================ */
+
+.notification-policy-effect {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+
+  margin-bottom: 16px;
+  padding: 11px 13px;
+
+  border: 1px solid #dce6f5;
+  border-radius: 9px;
+
+  background: #f7faff;
+}
+
+.notification-policy-effect strong {
+  flex-shrink: 0;
+
+  color: #34445d;
+  font-size: 13px;
+}
+
+.notification-policy-effect span {
+  color: #65748a;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.notification-policy-effect.is-disabled {
+  border-color: #e5e8ed;
+
+  background: #f7f7f8;
+
+  opacity: 0.75;
+}
+
+
+/*
+ * 接收人策略下面的解释文字。
+ */
+.notification-recipient-description {
+  margin-top: 2px;
+
+  color: #8a95a5;
+
+  font-size: 12px;
+
+  line-height: 1.5;
+}
+
+/* ============================================================
+   用户管理 - 钉钉绑定状态
+   ============================================================ */
+
+.dingtalk-status {
+  display: inline-flex;
+
+  align-items: center;
+  justify-content: center;
+
+  min-width: 58px;
+
+  padding: 4px 8px;
+
+  box-sizing: border-box;
+
+  border-radius: 999px;
+
+  font-size: 11px;
+  font-weight: 600;
+}
+
+
+/*
+ * 已经具备真正 @ 用户的条件。
+ */
+.dingtalk-status-ready {
+  color: #15803d;
+
+  background: #f0fdf4;
+
+  border: 1px solid #bbf7d0;
+}
+
+
+/*
+ * 完全没有创建绑定。
+ */
+.dingtalk-status-missing {
+  color: #b45309;
+
+  background: #fffbeb;
+
+  border: 1px solid #fde68a;
+}
+
+
+/*
+ * 有绑定记录，但是管理员关闭了。
+ */
+.dingtalk-status-disabled {
+  color: #64748b;
+
+  background: #f8fafc;
+
+  border: 1px solid #e2e8f0;
+}
+
+
+/*
+ * 绑定开启，但没有手机号。
+ *
+ * 当前 Sender 还无法真正 @。
+ */
+.dingtalk-status-warning {
+  color: #b91c1c;
+
+  background: #fef2f2;
+
+  border: 1px solid #fecaca;
+}
+
+
+/*
+ * Customer 暂时不参与内部钉钉通知。
+ */
+.dingtalk-status-neutral {
+  color: #64748b;
+
+  background: #f8fafc;
+
+  border: 1px solid #e2e8f0;
 }

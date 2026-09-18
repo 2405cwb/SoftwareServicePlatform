@@ -217,6 +217,25 @@ function UserPage() {
    * 正在保存绑定。
    */
   const [dingTalkBindingSaving, setDingTalkBindingSaving] = useState(false);
+
+  /*
+   * ======================================
+   * 用户列表中的钉钉绑定状态
+   * ======================================
+   *
+   * 这里保存所有 DingTalk 绑定。
+   *
+   * 用途：
+   * 用户列表直接显示：
+   *
+   * 可 @
+   * 未绑定
+   * 已停用
+   * 缺少手机号
+   */
+  const [dingTalkBindings, setDingTalkBindings] = useState<
+    ExternalUserBindingItem[]
+  >([]);
   /*
    * 系统客户列表。
    *
@@ -236,6 +255,11 @@ function UserPage() {
    * 查询用户
    * ======================================
    */
+  /*
+   * ======================================
+   * 查询用户 + 钉钉绑定状态
+   * ======================================
+   */
   async function loadUsers() {
     try {
       setLoading(true);
@@ -243,21 +267,54 @@ function UserPage() {
       setErrorMessage("");
 
       /*
-       * apiFetch 会自动携带：
+       * 用户列表和钉钉绑定没有前后依赖，
+       * 所以并行请求。
        *
-       * Authorization: Bearer xxx
+       * 比：
+       *
+       * await users
+       * await bindings
+       *
+       * 更快一点。
        */
-      const response = await apiFetch("/api/users");
+      const [usersResponse, bindingsResponse] = await Promise.all([
+        apiFetch("/api/users"),
 
-      if (!response.ok) {
-        const errorText = await response.text();
+        apiFetch("/api/external-user-bindings?channel=DingTalk"),
+      ]);
 
-        throw new Error(errorText || `获取用户失败：${response.status}`);
+      /*
+       * ======================================
+       * 用户列表请求检查
+       * ======================================
+       */
+      if (!usersResponse.ok) {
+        const errorText = await usersResponse.text();
+
+        throw new Error(errorText || `获取用户失败：${usersResponse.status}`);
       }
 
-      const data = (await response.json()) as UserItem[];
+      /*
+       * ======================================
+       * 钉钉绑定请求检查
+       * ======================================
+       */
+      if (!bindingsResponse.ok) {
+        const errorText = await bindingsResponse.text();
 
-      setUsers(data);
+        throw new Error(
+          errorText || `获取钉钉绑定失败：${bindingsResponse.status}`,
+        );
+      }
+
+      const usersData = (await usersResponse.json()) as UserItem[];
+
+      const bindingsData =
+        (await bindingsResponse.json()) as ExternalUserBindingItem[];
+
+      setUsers(usersData);
+
+      setDingTalkBindings(bindingsData);
     } catch (error) {
       console.error("加载用户列表失败：", error);
 
@@ -673,7 +730,13 @@ function UserPage() {
       }
 
       alert("钉钉账号绑定保存成功");
-
+      /*
+       * 重新读取用户和钉钉绑定，
+       * 让列表里的状态立即更新。
+       *
+       * 不需要用户手动刷新页面。
+       */
+      await loadUsers();
       /*
        * 保存后关闭编辑区域。
        */
@@ -727,6 +790,90 @@ function UserPage() {
     loadCustomers();
   }, []);
 
+  /*
+   * ======================================
+   * 计算钉钉绑定实际状态
+   * ======================================
+   *
+   * 当前 DingTalk Sender 真正 @ 人
+   * 使用的是：
+   *
+   * ExternalUserBinding.Mobile
+   *
+   * 所以：
+   *
+   * 有绑定记录 ≠ 一定可以 @。
+   */
+  function getDingTalkStatus(user: UserItem) {
+    /*
+     * Customer 当前主要使用站内通知，
+     * 不参与公司内部钉钉通知。
+     */
+    if (user.role === "Customer") {
+      return {
+        text: "不适用",
+
+        className: "dingtalk-status-neutral",
+      };
+    }
+
+    const binding = getDingTalkBinding(user.id);
+
+    /*
+     * 完全没有绑定记录。
+     */
+    if (!binding) {
+      return {
+        text: "未绑定",
+
+        className: "dingtalk-status-missing",
+      };
+    }
+
+    /*
+     * 管理员主动停用了绑定。
+     */
+    if (!binding.isEnabled) {
+      return {
+        text: "已停用",
+
+        className: "dingtalk-status-disabled",
+      };
+    }
+
+    /*
+     * 当前钉钉机器人 @ 指定用户
+     * 依赖 Mobile。
+     */
+    if (!binding.mobile || !binding.mobile.trim()) {
+      return {
+        text: "缺手机号",
+
+        className: "dingtalk-status-warning",
+      };
+    }
+
+    /*
+     * 有效绑定 + 有手机号：
+     *
+     * 当前已经具备真正 @ 人的条件。
+     */
+    return {
+      text: "可 @",
+
+      className: "dingtalk-status-ready",
+    };
+  }
+  /*
+   * ======================================
+   * 获取某个用户的 DingTalk 绑定
+   * ======================================
+   */
+  function getDingTalkBinding(userId: number) {
+    return dingTalkBindings.find(
+      (binding) => binding.userId === userId && binding.channel === "DingTalk",
+    );
+  }
   /*
    * ======================================
    * 角色英文 → 中文
@@ -1190,6 +1337,8 @@ function UserPage() {
 
             <div>状态</div>
 
+            <div>钉钉</div>
+
             <div>最后登录</div>
 
             <div>创建时间</div>
@@ -1264,7 +1413,20 @@ function UserPage() {
                   {user.isEnabled ? "启用" : "停用"}
                 </span>
               </div>
+              {/* ======================================
+    钉钉通知绑定状态
+    ====================================== */}
+              <div>
+                {(() => {
+                  const status = getDingTalkStatus(user);
 
+                  return (
+                    <span className={"dingtalk-status " + status.className}>
+                      {status.text}
+                    </span>
+                  );
+                })()}
+              </div>
               {/* 最后登录 */}
               <div>{formatDate(user.lastLoginAt)}</div>
 
