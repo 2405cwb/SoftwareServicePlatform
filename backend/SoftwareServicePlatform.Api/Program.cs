@@ -8,6 +8,7 @@ using SoftwareServicePlatform.Api.Hubs;
 using SoftwareServicePlatform.Api.Models;
 using SoftwareServicePlatform.Api.Services;
 using SoftwareServicePlatform.Api.Services.ExternalNotifications;
+using SoftwareServicePlatform.Api.Services.NotificationPolicies;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -37,7 +38,18 @@ builder.Services.AddHostedService<
 builder.Services.AddSignalR();
 
 
-
+/*
+ * ==========================================
+ * 通知策略初始化服务
+ * ==========================================
+ *
+ * 系统启动时检查默认通知策略。
+ *
+ * 只补充缺失策略，
+ * 不覆盖管理员已经修改的配置。
+ */
+builder.Services.AddScoped<
+    NotificationPolicySeeder>();
 /*
  * ==========================================
  * 外部通知统一调度服务
@@ -92,7 +104,33 @@ builder.Services.AddHttpClient<
             TimeSpan.FromSeconds(10);
     });
 
+/*
+ * ==========================================
+ * 通知接收人解析器
+ * ==========================================
+ *
+ * 把 NotificationPolicy 中的：
+ *
+ * RecipientStrategy
+ *
+ * 转换成真正的系统用户。
+ */
+builder.Services.AddScoped<
+    INotificationRecipientResolver,
+    NotificationRecipientResolver>();
 
+
+/*
+ * ==========================================
+ * 系统统一通知事件调度器
+ * ==========================================
+ *
+ * 以后 Controller / Service
+ * 原则上只和这个接口交互。
+ */
+builder.Services.AddScoped<
+    INotificationEventService,
+    NotificationEventService>();
 /*
  * ==========================================
  * 把钉钉 Sender 注册成统一 Sender
@@ -175,7 +213,20 @@ builder.Services
             }
         };
     });
-
+/*
+ * ==========================================
+ * 通知策略读取服务
+ * ==========================================
+ *
+ * 以后所有业务模块读取：
+ *
+ * NotificationPolicy
+ *
+ * 都统一经过这个服务。
+ */
+builder.Services.AddScoped<
+    INotificationPolicyService,
+    NotificationPolicyService>();
 builder.Services.AddAuthorization();
 
 builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
@@ -187,6 +238,29 @@ builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
+
+/*
+ * ==========================================
+ * 初始化通知策略
+ * ==========================================
+ *
+ * 创建一个临时 DI Scope，
+ * 因为 NotificationPolicySeeder
+ * 依赖 Scoped 的 AppDbContext。
+ */
+using (var scope =
+       app.Services.CreateScope())
+{
+    var notificationPolicySeeder =
+        scope.ServiceProvider
+            .GetRequiredService<
+                NotificationPolicySeeder>();
+
+
+    await notificationPolicySeeder
+        .SeedAsync();
+}
+
 
 if (app.Environment.IsDevelopment())
 {
