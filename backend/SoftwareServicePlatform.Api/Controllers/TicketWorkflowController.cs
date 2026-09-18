@@ -1,10 +1,9 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SoftwareServicePlatform.Api.Data;
 using SoftwareServicePlatform.Api.Models;
 using SoftwareServicePlatform.Api.Services;
-using SoftwareServicePlatform.Api.Services.ExternalNotifications;
 using SoftwareServicePlatform.Api.Services.NotificationPolicies;
 using System.Security.Claims;
 
@@ -22,11 +21,7 @@ namespace SoftwareServicePlatform.Api.Controllers;
 public class TicketWorkflowController : ControllerBase
 {
     private readonly AppDbContext _dbContext;
-    private readonly INotificationService
-     _notificationService;
-
-
-    /// <summary>
+/// <summary>
     /// 系统统一通知事件调度器。
     ///
     /// Controller 只负责告诉通知系统：
@@ -54,10 +49,9 @@ public class TicketWorkflowController : ControllerBase
         "WeChat", "Phone", "Email", "OnSite", "Internal"
     };
 
-    public TicketWorkflowController(AppDbContext dbContext, INotificationService notificationService,INotificationEventService notificationEventService)
+    public TicketWorkflowController(AppDbContext dbContext, INotificationEventService notificationEventService)
     {
         _dbContext = dbContext;
-        _notificationService = notificationService;
        
         _notificationEventService = notificationEventService;
     }
@@ -238,121 +232,132 @@ public class TicketWorkflowController : ControllerBase
 
         if (assignee != null)
         {
-            _dbContext.TicketRecords.Add(new TicketRecord
-            {
-                TicketId = ticket.Id,
-                CreatedByUserId = currentUser.Id,
-                RecordType = "Assign",
-                Content = $"工单已分配给{assignee.DisplayName}（{GetRoleName(assignee.Role)}）",
-                IsInternal = false,
-                CreatedAt = now
-            });
-            /*
- * ==========================================
- * 查询工单关联的客户和软件名称
- * ==========================================
- *
- * Triage 当前查询 Ticket 时，
- * 没有 Include Customer / Software，
- * 所以这里单独查询通知需要的信息。
- */
-            var ticketInfo =
-                await _dbContext.Tickets
-                    .AsNoTracking()
-                    .Where(x => x.Id == ticket.Id)
-                    .Select(x => new
-                    {
-                        CustomerName = x.Customer.Name,
-                        SoftwareName = x.Software.Name
-                    })
-                    .FirstAsync();
+            _dbContext.TicketRecords.Add(
+                new TicketRecord
+                {
+                    TicketId =
+                        ticket.Id,
 
+                    CreatedByUserId =
+                        currentUser.Id,
 
-            await _notificationService.AddAsync(
-    /*
-     * 分诊后真正处理这张工单的人。
-     */
-    userId:
-        assignee.Id,
+                    RecordType =
+                        "Assign",
 
-    type:
-        "TicketAssigned",
+                    Content =
+                        $"工单已分配给{assignee.DisplayName}" +
+                        $"（{GetRoleName(assignee.Role)}）",
 
-    title:
-        $"工单已分诊：{ticket.TicketNo}",
+                    IsInternal =
+                        false,
 
-    /*
-     * ==========================================
-     * 通知正文
-     * ==========================================
-     *
-     * 不再只显示：
-     *
-     * “某工单分配给你”
-     *
-     * 而是把实际处理工单需要的信息一次带全。
-     */
-    content:
-        $"工单号：{ticket.TicketNo}\n" +
-        $"客户：{ticketInfo.CustomerName}\n" +
-        $"软件：{ticketInfo.SoftwareName}\n" +
-        $"标题：{ticket.Title}\n" +
-        $"优先级：{GetPriorityName(ticket.Priority)}\n" +
-        $"处理人：{assignee.DisplayName}（{GetRoleName(assignee.Role)}）\n" +
-        $"分诊人：{currentUser.DisplayName}",
-
-    level:
-        ticket.Priority == "Urgent"
-            ? "Warning"
-            : ticket.Priority == "High"
-                ? "Warning"
-                : "Info",
-
-    targetUrl:
-        $"/tickets?ticketId={ticket.Id}",
-
-    /*
-     * 每次分诊都是一个新的业务事件。
-     */
-    dedupKey:
-        null,
-
-
-    /*
-     * ==========================================
-     * 外部通知
-     * ==========================================
-     *
-     * 你现在缺的正是这一段。
-     */
-    deliveryOptions:
-        new NotificationDeliveryOptions
-        {
-            ExternalChannels =
-            {
-                "DingTalk"
-            },
-
-            /*
-             * @ 功能还没有实现，
-             * 但先保留这个业务意图。
-             */
-            MentionRecipient = true,
-
-            /*
-             * 本次分诊唯一事件。
-             *
-             * 使用 now.Ticks，
-             * 以后重新分诊仍然可以再次通知。
-             */
-            ExternalEventKey =
-                $"ticket:{ticket.Id}:triage:{now.Ticks}"
-        }
-);
+                    CreatedAt =
+                        now
+                }
+            );
         }
 
+
+        /*
+         * 先保存正式 TicketNo、代录记录和分配记录，
+         * 再发送通知。
+         */
         await _dbContext.SaveChangesAsync();
-        await _notificationService.PushPendingAsync();
+
+
+        if (assignee != null)
+        {
+            await _notificationEventService.PublishAsync(
+                new NotificationEventRequest
+                {
+                    EventKey =
+                        NotificationEventKeys
+                            .TicketAssigned,
+
+                    Context =
+                        new NotificationRecipientContext
+                        {
+                            TicketId =
+                                ticket.Id
+                        },
+
+                    Title =
+                        $"工单已分配：{ticket.TicketNo}",
+
+                    Content =
+                        $"工单号：{ticket.TicketNo}\n" +
+                        $"客户：{customer.Name}\n" +
+                        $"软件：{software.Name}\n" +
+                        $"标题：{ticket.Title}\n" +
+                        $"优先级：{GetPriorityName(ticket.Priority)}\n" +
+                        $"处理人：{assignee.DisplayName}" +
+                        $"（{GetRoleName(assignee.Role)}）\n" +
+                        $"录入人：{currentUser.DisplayName}\n" +
+                        $"来源：{GetSourceName(source)}",
+
+                    Level =
+                        ticket.Priority is "Urgent" or "High"
+                            ? "Warning"
+                            : null,
+
+                    TargetUrl =
+                        $"/tickets?ticketId={ticket.Id}",
+
+                    DedupKey =
+                        $"ticket:{ticket.Id}:assigned:intake",
+
+                    NotificationType =
+                        "TicketAssigned"
+                }
+            );
+        }
+        else
+        {
+            await _notificationEventService.PublishAsync(
+                new NotificationEventRequest
+                {
+                    EventKey =
+                        NotificationEventKeys
+                            .TicketCreated,
+
+                    Context =
+                        new NotificationRecipientContext
+                        {
+                            TicketId =
+                                ticket.Id
+                        },
+
+                    Title =
+                        $"收到新的代录工单：{ticket.TicketNo}",
+
+                    Content =
+                        $"工单号：{ticket.TicketNo}\n" +
+                        $"客户：{customer.Name}\n" +
+                        $"软件：{software.Name}\n" +
+                        $"标题：{ticket.Title}\n" +
+                        $"优先级：{GetPriorityName(ticket.Priority)}\n" +
+                        $"处理人：暂未分配\n" +
+                        $"录入人：{currentUser.DisplayName}\n" +
+                        $"来源：{GetSourceName(source)}",
+
+                    Level =
+                        ticket.Priority is "Urgent" or "High"
+                            ? "Warning"
+                            : null,
+
+                    TargetUrl =
+                        $"/tickets?ticketId={ticket.Id}",
+
+                    DedupKey =
+                        $"ticket:{ticket.Id}:created",
+
+                    NotificationType =
+                        "TicketCreated"
+                }
+            );
+        }
+
+
         return StatusCode(StatusCodes.Status201Created, new
         {
             message = "工单创建成功",

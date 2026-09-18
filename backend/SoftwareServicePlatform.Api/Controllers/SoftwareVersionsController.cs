@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using SoftwareServicePlatform.Api.Data;
 using SoftwareServicePlatform.Api.Models;
 using SoftwareServicePlatform.Api.Services;
+using SoftwareServicePlatform.Api.Services.NotificationPolicies;
 using System.Security.Claims;
 using System.Security.Cryptography; 
 namespace SoftwareServicePlatform.Api.Controllers
@@ -23,15 +24,15 @@ namespace SoftwareServicePlatform.Api.Controllers
 
         private readonly IWebHostEnvironment _environment;
 
-        private readonly INotificationService _notificationService;
+        private readonly INotificationEventService _notificationEventService;
         /// <summary>
         /// 通过依赖注入获取数据库上下文
         /// </summary>
-        public SoftwareVersionsController(AppDbContext dbContext, IWebHostEnvironment environment, INotificationService notificationService)
+        public SoftwareVersionsController(AppDbContext dbContext, IWebHostEnvironment environment, INotificationEventService notificationEventService)
         {
             _dbContext = dbContext;
             _environment = environment;
-            _notificationService = notificationService;
+            _notificationEventService = notificationEventService;
         }
 
         /// <summary>
@@ -1062,40 +1063,51 @@ request.PublishToAll)
             }
 
             /*
- * 只通知本次真正发布到的客户用户。
- */
-            var customerUserIds =
-    await _dbContext.Users
-        .AsNoTracking()
-        .Where(x =>
-            x.IsEnabled &&
-            x.Role == "Customer" &&
-            x.CustomerId.HasValue &&
-            targetCustomerIds.Contains(
-                x.CustomerId.Value))
-        .Select(x => x.Id)
-        .ToListAsync();
+             * 先保存版本发布结果和 SoftwareVersionCustomers，
+             * 让 VersionAudience Resolver
+             * 可以读取真实发布范围。
+             */
+            await _dbContext.SaveChangesAsync();
 
-            foreach (var userId in customerUserIds)
-            {
-                await _notificationService.AddAsync(
-                    userId: userId,
-                    type: "VersionPublished",
-                    title: "有新的软件版本发布",
-                    content:
+
+            await _notificationEventService.PublishAsync(
+                new NotificationEventRequest
+                {
+                    EventKey =
+                        NotificationEventKeys
+                            .VersionPublished,
+
+                    Context =
+                        new NotificationRecipientContext
+                        {
+                            SoftwareVersionId =
+                                version.Id
+                        },
+
+                    Title =
+                        "有新的软件版本发布",
+
+                    Content =
                         $"{version.Software!.Name} " +
                         $"{version.Version} 已发布。",
-                    level:
+
+                    Level =
                         version.ForceUpdate
                             ? "Warning"
-                            : "Info",
-                    targetUrl: "/my-software",
-                    dedupKey:
-                        $"version:{version.Id}:published"
-                );
-            }
-            await _dbContext.SaveChangesAsync();
-            await _notificationService.PushPendingAsync();
+                            : null,
+
+                    TargetUrl =
+                        "/my-software",
+
+                    DedupKey =
+                        $"version:{version.Id}:published",
+
+                    NotificationType =
+                        "VersionPublished"
+                }
+            );
+
+
             return NoContent();
         }
 

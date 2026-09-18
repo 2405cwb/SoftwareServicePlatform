@@ -102,10 +102,13 @@ namespace SoftwareServicePlatform.Api.Services.NotificationPolicies
         {
             /*
              * ==========================================
-             * 1. 基础参数检查
+             * 1. 基础参数保护
              * ==========================================
+             *
+             * 通知属于辅助能力。
+             * 即使通知参数异常，
+             * 也不能让已经完成的核心业务反向失败。
              */
-
             if (request == null)
             {
                 _logger.LogWarning(
@@ -153,39 +156,21 @@ namespace SoftwareServicePlatform.Api.Services.NotificationPolicies
 
             /*
              * ==========================================
-             * 2. 读取通知策略
+             * 2. 读取数据库通知策略
              * ==========================================
-             *
-             * 例如：
-             *
-             * Ticket.Triaged
-             *
-             * 数据库可能配置为：
-             *
-             * IsEnabled = true
-             * InAppEnabled = true
-             * RecipientStrategy = Assignee
-             *
-             * DingTalk = true
-             * MentionRecipient = true
              */
-
             NotificationPolicySnapshot? policy;
 
             try
             {
                 policy =
-                    await _policyService
-                        .GetAsync(
-                            request.EventKey,
-                            cancellationToken
-                        );
+                    await _policyService.GetAsync(
+                        request.EventKey,
+                        cancellationToken
+                    );
             }
             catch (Exception ex)
             {
-                /*
-                 * 通知系统异常不能让核心业务失败。
-                 */
                 _logger.LogError(
                     ex,
                     "读取通知策略发生异常。EventKey={EventKey}",
@@ -196,34 +181,11 @@ namespace SoftwareServicePlatform.Api.Services.NotificationPolicies
             }
 
 
-            /*
-             * 没有对应策略：
-             *
-             * 记录日志后跳过。
-             */
             if (policy == null)
             {
                 return;
             }
 
-
-            /*
-             * ==========================================
-             * 3. 整个事件被关闭
-             * ==========================================
-             *
-             * 这是最高级别总开关。
-             *
-             * IsEnabled = false
-             *
-             * 意味着：
-             *
-             * 不站内通知
-             * 不 SignalR
-             * 不 DingTalk
-             * 不 WeCom
-             * 不 Email
-             */
 
             if (!policy.IsEnabled)
             {
@@ -238,22 +200,20 @@ namespace SoftwareServicePlatform.Api.Services.NotificationPolicies
 
             /*
              * ==========================================
-             * 4. 解析真正的通知接收人
+             * 3. 解析真实接收人
              * ==========================================
              */
-
             IReadOnlyList<NotificationRecipient>
                 recipients;
 
             try
             {
                 recipients =
-                    await _recipientResolver
-                        .ResolveAsync(
-                            policy.RecipientStrategy,
-                            request.Context,
-                            cancellationToken
-                        );
+                    await _recipientResolver.ResolveAsync(
+                        policy.RecipientStrategy,
+                        request.Context,
+                        cancellationToken
+                    );
             }
             catch (Exception ex)
             {
@@ -265,40 +225,21 @@ namespace SoftwareServicePlatform.Api.Services.NotificationPolicies
                 );
 
                 recipients =
-                    Array.Empty<
-                        NotificationRecipient>();
+                    Array.Empty<NotificationRecipient>();
             }
 
 
             /*
              * ==========================================
-             * 5. 确定最终通知等级
+             * 4. 最终通知级别和 Type
              * ==========================================
-             *
-             * 业务传了 Level：
-             *
-             * 使用业务动态值。
-             *
-             * 没传：
-             *
-             * 使用策略表 DefaultLevel。
              */
-
             var level =
                 string.IsNullOrWhiteSpace(
                     request.Level)
                     ? policy.DefaultLevel
                     : request.Level.Trim();
 
-
-            /*
-             * Notification.Type
-             *
-             * 新代码可以直接使用 EventKey。
-             *
-             * 老代码迁移期间，
-             * 也允许临时保留原来的 Type。
-             */
 
             var notificationType =
                 string.IsNullOrWhiteSpace(
@@ -309,10 +250,9 @@ namespace SoftwareServicePlatform.Api.Services.NotificationPolicies
 
             /*
              * ==========================================
-             * 6. 生成站内通知
+             * 5. 站内通知
              * ==========================================
              */
-
             var inAppCreatedCount =
                 0;
 
@@ -323,47 +263,29 @@ namespace SoftwareServicePlatform.Api.Services.NotificationPolicies
                 {
                     try
                     {
-                        /*
-                         * 每一个接收用户都拥有自己
-                         * 独立的一条 Notification。
-                         *
-                         * Notification 表本来就是
-                         * 按用户保存的。
-                         */
-
                         var notification =
-                            await _notificationService
-                                .AddAsync(
-                                    userId:
-                                        recipient.UserId,
+                            await _notificationService.AddAsync(
+                                userId:
+                                    recipient.UserId,
 
-                                    type:
-                                        notificationType,
+                                type:
+                                    notificationType,
 
-                                    title:
-                                        request.Title,
+                                title:
+                                    request.Title,
 
-                                    content:
-                                        request.Content,
+                                content:
+                                    request.Content,
 
-                                    level:
-                                        level,
+                                level:
+                                    level,
 
-                                    targetUrl:
-                                        request.TargetUrl,
+                                targetUrl:
+                                    request.TargetUrl,
 
-                                    /*
-                                     * 同一个 DedupKey 可以给多个用户使用。
-                                     *
-                                     * 因为数据库唯一索引是：
-                                     *
-                                     * UserId + DedupKey
-                                     *
-                                     * 所以不需要再自己拼 UserId。
-                                     */
-                                    dedupKey:
-                                        request.DedupKey
-                                );
+                                dedupKey:
+                                    request.DedupKey
+                            );
 
 
                         if (notification != null)
@@ -373,10 +295,6 @@ namespace SoftwareServicePlatform.Api.Services.NotificationPolicies
                     }
                     catch (Exception ex)
                     {
-                        /*
-                         * 某一个用户通知生成失败，
-                         * 不应该阻止其他用户。
-                         */
                         _logger.LogWarning(
                             ex,
                             "创建站内通知失败。EventKey={EventKey}, UserId={UserId}",
@@ -387,49 +305,22 @@ namespace SoftwareServicePlatform.Api.Services.NotificationPolicies
                 }
 
 
-                /*
-                 * ==========================================
-                 * 7. 保存站内通知
-                 * ==========================================
-                 *
-                 * NotificationService.AddAsync()
-                 * 只是把 Notification 加入 DbContext，
-                 * 不负责 SaveChanges。
-                 */
-
                 if (inAppCreatedCount > 0)
                 {
-                    /*
-                     * ==========================================
-                     * 7. 保存站内通知
-                     * ==========================================
-                     *
-                     * 只有 Notification 真正写入数据库成功，
-                     * 才允许继续进行 SignalR 实时推送。
-                     */
                     var inAppSaved =
                         false;
 
-
                     try
                     {
-                        await _dbContext
-                            .SaveChangesAsync(
-                                cancellationToken
-                            );
+                        await _dbContext.SaveChangesAsync(
+                            cancellationToken
+                        );
 
                         inAppSaved =
                             true;
                     }
                     catch (Exception ex)
                     {
-                        /*
-                         * 核心业务在调用 PublishAsync() 前
-                         * 已经保存成功。
-                         *
-                         * 通知保存失败只记录日志，
-                         * 不能反向让核心业务失败。
-                         */
                         _logger.LogError(
                             ex,
                             "保存站内通知失败。EventKey={EventKey}",
@@ -439,12 +330,8 @@ namespace SoftwareServicePlatform.Api.Services.NotificationPolicies
 
 
                     /*
-                     * ==========================================
-                     * 8. SignalR 实时推送
-                     * ==========================================
-                     *
-                     * 必须建立在 Notification
-                     * 已经成功写入数据库的前提下。
+                     * 只有数据库保存成功，
+                     * 才允许实时 SignalR 推送。
                      */
                     if (inAppSaved)
                     {
@@ -465,156 +352,117 @@ namespace SoftwareServicePlatform.Api.Services.NotificationPolicies
                         }
                     }
                 }
+            }
 
-                /*
-                 * ==========================================
-                 * 9. 发送外部通知
-                 * ==========================================
-                 *
-                 * 站内通知和外部通知彼此独立。
-                 *
-                 * 即使：
-                 *
-                 * InAppEnabled = false
-                 *
-                 * 仍然允许：
-                 *
-                 * DingTalkEnabled = true
-                 */
 
-                var enabledChannels =
-                    policy.Channels
-                        .Where(x =>
-                            x.IsEnabled
-                            &&
-                            !string.IsNullOrWhiteSpace(
-                                x.Channel
-                            )
+            /*
+             * ==========================================
+             * 6. 外部通知
+             * ==========================================
+             *
+             * 外部通知必须在 InAppEnabled 判断之外。
+             *
+             * 因此允许：
+             *
+             * InAppEnabled = false
+             * DingTalk     = true
+             *
+             * 只发钉钉，不生成站内通知。
+             */
+            var enabledChannels =
+                policy.Channels
+                    .Where(x =>
+                        x.IsEnabled
+                        &&
+                        !string.IsNullOrWhiteSpace(
+                            x.Channel
                         )
-                        .ToList();
+                    )
+                    .ToList();
 
 
-                foreach (var channelPolicy
-                         in enabledChannels)
+            foreach (var channelPolicy
+                     in enabledChannels)
+            {
+                try
                 {
-                    try
-                    {
-                        /*
-                         * 每个渠道单独创建 Message。
-                         *
-                         * 原因：
-                         *
-                         * DingTalk 可能要求 @ 接收人，
-                         * Email 可能不需要。
-                         *
-                         * 所以 MentionRecipient
-                         * 属于“渠道级策略”。
-                         */
-
-                        var externalMessage =
-                            new ExternalNotificationMessage
-                            {
-                                Title =
-                                    request.Title,
-
-                                Content =
-                                    request.Content,
-
-                                Level =
-                                    level,
-
-                                TargetUrl =
-                                    request.TargetUrl,
-
-                                MentionAll =
-                                    channelPolicy
-                                        .MentionAll,
-
-                                /*
-                                 * 这里仍然保存的是
-                                 * 软件服务平台内部 UserId。
-                                 *
-                                 * 后面的具体 Sender：
-                                 *
-                                 * DingTalkNotificationSender
-                                 *
-                                 * 会通过 ExternalUserBinding
-                                 * 把 UserId 映射成钉钉账号。
-                                 */
-                                Recipients =
-                                    recipients
-                                        .Select(
-                                            x =>
-                                                new ExternalNotificationRecipient
-                                                {
-                                                    UserId =
-                                                        x.UserId,
-
-                                                    DisplayName =
-                                                        x.DisplayName,
-
-                                                    Mention =
-                                                        channelPolicy
-                                                            .MentionRecipient
-                                                }
-                                        )
-                                        .ToList()
-                            };
-
-
-                        var success =
-                            await _externalNotificationService
-                                .SendAsync(
-                                    channelPolicy.Channel,
-                                    externalMessage,
-                                    cancellationToken
-                                );
-
-
-                        if (!success)
+                    var externalMessage =
+                        new ExternalNotificationMessage
                         {
-                            _logger.LogWarning(
-                                "外部通知发送失败。EventKey={EventKey}, Channel={Channel}",
-                                request.EventKey,
-                                channelPolicy.Channel
-                            );
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        /*
-                         * 一个外部渠道失败，
-                         * 不能影响：
-                         *
-                         * 站内通知
-                         * 其他渠道
-                         * 核心业务
-                         */
+                            Title =
+                                request.Title,
 
+                            Content =
+                                request.Content,
+
+                            Level =
+                                level,
+
+                            TargetUrl =
+                                request.TargetUrl,
+
+                            MentionAll =
+                                channelPolicy.MentionAll,
+
+                            Recipients =
+                                recipients
+                                    .Select(
+                                        x =>
+                                            new ExternalNotificationRecipient
+                                            {
+                                                UserId =
+                                                    x.UserId,
+
+                                                DisplayName =
+                                                    x.DisplayName,
+
+                                                Mention =
+                                                    channelPolicy
+                                                        .MentionRecipient
+                                            }
+                                    )
+                                    .ToList()
+                        };
+
+
+                    var success =
+                        await _externalNotificationService
+                            .SendAsync(
+                                channelPolicy.Channel,
+                                externalMessage,
+                                cancellationToken
+                            );
+
+
+                    if (!success)
+                    {
                         _logger.LogWarning(
-                            ex,
-                            "外部通知发送异常。EventKey={EventKey}, Channel={Channel}",
+                            "外部通知发送失败。EventKey={EventKey}, Channel={Channel}",
                             request.EventKey,
                             channelPolicy.Channel
                         );
                     }
                 }
-
-
-                /*
-                 * ==========================================
-                 * 10. 调度完成
-                 * ==========================================
-                 */
-
-                _logger.LogInformation(
-                    "通知事件处理完成。EventKey={EventKey}, Recipients={RecipientCount}, InAppCreated={InAppCreatedCount}, ExternalChannels={ExternalChannelCount}",
-                    request.EventKey,
-                    recipients.Count,
-                    inAppCreatedCount,
-                    enabledChannels.Count
-                );
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "外部通知发送异常。EventKey={EventKey}, Channel={Channel}",
+                        request.EventKey,
+                        channelPolicy.Channel
+                    );
+                }
             }
+
+
+            _logger.LogInformation(
+                "通知事件处理完成。EventKey={EventKey}, Recipients={RecipientCount}, InAppCreated={InAppCreatedCount}, ExternalChannels={ExternalChannelCount}",
+                request.EventKey,
+                recipients.Count,
+                inAppCreatedCount,
+                enabledChannels.Count
+            );
         }
+
     }
 }

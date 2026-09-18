@@ -5,7 +5,6 @@ using SoftwareServicePlatform.Api.Data;
 using SoftwareServicePlatform.Api.Dtos.Tickets;
 using SoftwareServicePlatform.Api.Models;
 using SoftwareServicePlatform.Api.Services;
-using SoftwareServicePlatform.Api.Services.ExternalNotifications;
 using SoftwareServicePlatform.Api.Services.NotificationPolicies;
 using System.Security.Claims;
 
@@ -23,27 +22,6 @@ namespace SoftwareServicePlatform.Api.Controllers
     _dbContext;
 
 
-        /*
-         * ==========================================
-         * 旧站内通知服务
-         * ==========================================
-         *
-         * 当前 TicketsController 中还有：
-         *
-         * 工单回复
-         * 工单解决
-         * 工单关闭
-         * 工单重新打开
-         *
-         * 等旧通知尚未迁移。
-         *
-         * 所以现在不能删除。
-         *
-         * 等整个 Controller 的通知全部迁移完成后，
-         * 再统一移除。
-         */
-        private readonly INotificationService
-            _notificationService;
 
 
         /*
@@ -68,14 +46,10 @@ namespace SoftwareServicePlatform.Api.Controllers
 
         public TicketsController(
             AppDbContext dbContext,
-            INotificationService notificationService,
             INotificationEventService notificationEventService)
         {
             _dbContext =
                 dbContext;
-
-            _notificationService =
-                notificationService;
 
             _notificationEventService =
                 notificationEventService;
@@ -2831,12 +2805,7 @@ namespace SoftwareServicePlatform.Api.Controllers
             _dbContext.TicketRecords.Add(
                 record
             );
-            await NotifyCustomerUsersAsync(
-    ticket,
-    "TicketResolved",
-    "您的工单已解决",
-    $"工单 {ticket.TicketNo} 已由 {currentUser.DisplayName} 标记为已解决。"
-);
+             
 
             /*
              * ==========================================
@@ -2853,7 +2822,48 @@ namespace SoftwareServicePlatform.Api.Controllers
              */
 
             await _dbContext.SaveChangesAsync();
-            await _notificationService.PushPendingAsync();
+
+
+            /*
+             * ==========================================
+             * 工单已解决通知
+             * ==========================================
+             *
+             * Ticket.Resolved
+             * RecipientStrategy = Customer
+             */
+            await _notificationEventService.PublishAsync(
+                new NotificationEventRequest
+                {
+                    EventKey =
+                        NotificationEventKeys
+                            .TicketResolved,
+
+                    Context =
+                        new NotificationRecipientContext
+                        {
+                            TicketId =
+                                ticket.Id
+                        },
+
+                    Title =
+                        $"您的工单已解决：{ticket.TicketNo}",
+
+                    Content =
+                        $"工单 {ticket.TicketNo} 已由 " +
+                        $"{currentUser.DisplayName} 标记为已解决。",
+
+                    TargetUrl =
+                        $"/tickets?ticketId={ticket.Id}",
+
+                    DedupKey =
+                        $"ticket:{ticket.Id}:" +
+                        $"resolved:{record.Id}",
+
+                    NotificationType =
+                        "TicketResolved"
+                }
+            );
 
             /*
              * ==========================================
@@ -3174,12 +3184,7 @@ namespace SoftwareServicePlatform.Api.Controllers
             _dbContext.TicketRecords.Add(
                 record
             );
-            await NotifyCustomerUsersAsync(
-    ticket,
-    "TicketClosed",
-    "您的工单已关闭",
-    $"工单 {ticket.TicketNo} 已关闭。"
-);
+           
 
             /*
              * ==========================================
@@ -3188,6 +3193,48 @@ namespace SoftwareServicePlatform.Api.Controllers
              */
 
             await _dbContext.SaveChangesAsync();
+
+
+            /*
+             * ==========================================
+             * 工单关闭通知
+             * ==========================================
+             *
+             * Ticket.Closed
+             * RecipientStrategy = CustomerAndAssignee
+             */
+            await _notificationEventService.PublishAsync(
+                new NotificationEventRequest
+                {
+                    EventKey =
+                        NotificationEventKeys
+                            .TicketClosed,
+
+                    Context =
+                        new NotificationRecipientContext
+                        {
+                            TicketId =
+                                ticket.Id
+                        },
+
+                    Title =
+                        $"工单已关闭：{ticket.TicketNo}",
+
+                    Content =
+                        $"工单 {ticket.TicketNo} 已由 " +
+                        $"{currentUser.DisplayName} 关闭。",
+
+                    TargetUrl =
+                        $"/tickets?ticketId={ticket.Id}",
+
+                    DedupKey =
+                        $"ticket:{ticket.Id}:" +
+                        $"closed:{record.Id}",
+
+                    NotificationType =
+                        "TicketClosed"
+                }
+            );
 
 
             /*
@@ -3487,13 +3534,7 @@ namespace SoftwareServicePlatform.Api.Controllers
             _dbContext.TicketRecords.Add(
                 record
             );
-            await NotifyCustomerUsersAsync(
-    ticket,
-    "TicketReopened",
-    "您的工单已重新打开",
-    $"工单 {ticket.TicketNo} 已重新进入处理中。",
-    "Warning"
-);
+             
 
             /*
              * ==========================================
@@ -3502,6 +3543,51 @@ namespace SoftwareServicePlatform.Api.Controllers
              */
 
             await _dbContext.SaveChangesAsync();
+
+
+            /*
+             * ==========================================
+             * 工单重新打开通知
+             * ==========================================
+             *
+             * Ticket.Reopened
+             * RecipientStrategy = AssigneeAndSupport
+             */
+            await _notificationEventService.PublishAsync(
+                new NotificationEventRequest
+                {
+                    EventKey =
+                        NotificationEventKeys
+                            .TicketReopened,
+
+                    Context =
+                        new NotificationRecipientContext
+                        {
+                            TicketId =
+                                ticket.Id
+                        },
+
+                    Title =
+                        $"工单已重新打开：{ticket.TicketNo}",
+
+                    Content =
+                        $"工单 {ticket.TicketNo} 已由 " +
+                        $"{currentUser.DisplayName} 重新打开，请继续处理。",
+
+                    Level =
+                        "Warning",
+
+                    TargetUrl =
+                        $"/tickets?ticketId={ticket.Id}",
+
+                    DedupKey =
+                        $"ticket:{ticket.Id}:" +
+                        $"reopened:{record.Id}",
+
+                    NotificationType =
+                        "TicketReopened"
+                }
+            );
 
 
             /*
@@ -3615,37 +3701,6 @@ namespace SoftwareServicePlatform.Api.Controllers
                 _ =>
                     role
             };
-        }
-
-
-        private async Task NotifyCustomerUsersAsync(
-    Ticket ticket,
-    string type,
-    string title,
-    string content,
-    string level = "Info")
-        {
-            var userIds = await _dbContext.Users
-                .AsNoTracking()
-                .Where(x =>
-                    x.IsEnabled &&
-                    x.Role == "Customer" &&
-                    x.CustomerId == ticket.CustomerId)
-                .Select(x => x.Id)
-                .ToListAsync();
-
-            foreach (var userId in userIds)
-            {
-                await _notificationService.AddAsync(
-                    userId: userId,
-                    type: type,
-                    title: title,
-                    content: content,
-                    level: level,
-                    targetUrl: $"/tickets?ticketId={ticket.Id}",
-                    dedupKey: null
-                );
-            }
         }
 
         /// <summary>
