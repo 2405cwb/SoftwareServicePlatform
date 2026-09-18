@@ -6,6 +6,7 @@ using SoftwareServicePlatform.Api.Dtos.Tickets;
 using SoftwareServicePlatform.Api.Models;
 using SoftwareServicePlatform.Api.Services;
 using SoftwareServicePlatform.Api.Services.ExternalNotifications;
+using SoftwareServicePlatform.Api.Services.NotificationPolicies;
 using System.Security.Claims;
 
 namespace SoftwareServicePlatform.Api.Controllers
@@ -18,14 +19,66 @@ namespace SoftwareServicePlatform.Api.Controllers
     [Authorize]
     public class TicketsController : ControllerBase
     {
-        private readonly AppDbContext _dbContext;
-        private readonly INotificationService _notificationService;
+        private readonly AppDbContext
+    _dbContext;
+
+
+        /*
+         * ==========================================
+         * 旧站内通知服务
+         * ==========================================
+         *
+         * 当前 TicketsController 中还有：
+         *
+         * 工单回复
+         * 工单解决
+         * 工单关闭
+         * 工单重新打开
+         *
+         * 等旧通知尚未迁移。
+         *
+         * 所以现在不能删除。
+         *
+         * 等整个 Controller 的通知全部迁移完成后，
+         * 再统一移除。
+         */
+        private readonly INotificationService
+            _notificationService;
+
+
+        /*
+         * ==========================================
+         * 新统一通知事件服务
+         * ==========================================
+         *
+         * 新迁移的通知事件统一从这里发送。
+         *
+         * Controller 不再负责：
+         *
+         * 查询通知接收人
+         * 判断是否发钉钉
+         * 判断是否 @
+         * 调用 SignalR
+         *
+         * 这些都由通知策略系统负责。
+         */
+        private readonly INotificationEventService
+            _notificationEventService;
+
 
         public TicketsController(
-            AppDbContext dbContext, INotificationService notificationService)
+            AppDbContext dbContext,
+            INotificationService notificationService,
+            INotificationEventService notificationEventService)
         {
-            _dbContext = dbContext;
-            _notificationService = notificationService;
+            _dbContext =
+                dbContext;
+
+            _notificationService =
+                notificationService;
+
+            _notificationEventService =
+                notificationEventService;
         }
 
 
