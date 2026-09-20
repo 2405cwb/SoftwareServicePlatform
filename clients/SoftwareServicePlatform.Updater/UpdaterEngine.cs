@@ -621,27 +621,101 @@ namespace SoftwareServicePlatform.Updater
                 }
 
 
-                /*
-                 * ==========================================
-                 * 6. 所有文件成功后才写新版本号
-                 * ==========================================
-                 */
-                var versionPath =
-                    GetSafeAppPath(
-                        _config.VersionFile
-                    );
+               /*
+ * ==========================================
+ * 6. 所有文件成功后才写新版本号
+ * ==========================================
+ *
+ * version.txt 同样属于更新事务的一部分。
+ *
+ * 如果写版本号失败，
+ * catch 中必须能够恢复原来的版本文件。
+ */
+var versionRelativePath =
+    _config.VersionFile;
 
-                Directory.CreateDirectory(
-                    Path.GetDirectoryName(
-                        versionPath
-                    )!
-                );
+var versionPath =
+    GetSafeAppPath(
+        versionRelativePath
+    );
 
-                await File.WriteAllTextAsync(
-                    versionPath,
-                    update.LatestVersion,
-                    cancellationToken
-                );
+/*
+ * 如果 version.txt 还没有在前面的文件替换过程中
+ * 被加入备份列表，这里单独处理。
+ *
+ * 默认情况下 version.txt 不会进入 manifest，
+ * 因为服务端已经把它设置为受保护文件。
+ */
+var versionAlreadyTracked =
+    backedUp.Any(
+        x =>
+            string.Equals(
+                x,
+                versionRelativePath,
+                StringComparison.OrdinalIgnoreCase
+            )
+    )
+    ||
+    newlyCreated.Any(
+        x =>
+            string.Equals(
+                x,
+                versionRelativePath,
+                StringComparison.OrdinalIgnoreCase
+            )
+    );
+
+if (!versionAlreadyTracked)
+{
+    if (File.Exists(versionPath))
+    {
+        var versionBackupPath =
+            GetSafeChildPath(
+                backupRoot,
+                versionRelativePath
+            );
+
+        Directory.CreateDirectory(
+            Path.GetDirectoryName(
+                versionBackupPath
+            )!
+        );
+
+        File.Copy(
+            versionPath,
+            versionBackupPath,
+            overwrite: true
+        );
+
+        backedUp.Add(
+            versionRelativePath
+        );
+    }
+    else
+    {
+        /*
+         * 原来不存在 version.txt。
+         *
+         * 如果后面失败，
+         * rollback 会把新创建的 version.txt 删除。
+         */
+        newlyCreated.Add(
+            versionRelativePath
+        );
+    }
+}
+
+Directory.CreateDirectory(
+    Path.GetDirectoryName(
+        versionPath
+    )!
+);
+
+await File.WriteAllTextAsync(
+    versionPath,
+    update.LatestVersion,
+    cancellationToken
+);
 
                 Log(
                     $"增量更新成功：{update.CurrentVersion} -> {update.LatestVersion}"
