@@ -1016,31 +1016,7 @@ function UserPage() {
                   )}
                 </select>
               </div>
-              {newRole === "Customer" && (
-                <div className="form-item">
-                  <label>所属客户：</label>
-
-                  <select
-                    value={newCustomerId}
-                    onChange={(e) => {
-                      const value = e.target.value;
-
-                      setNewCustomerId(value === "" ? "" : Number(value));
-                    }}
-                  >
-                    <option value="">请选择客户</option>
-
-                    {customers
-                      .filter((customer) => customer.isEnabled)
-                      .map((customer) => (
-                        <option key={customer.id} value={customer.id}>
-                          {customer.name}
-                          {customer.code ? ` (${customer.code})` : ""}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-              )}
+             
               {editingUserId !== null && (
                 <div className="form-item">
                   <label>账号状态：</label>
