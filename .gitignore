@@ -65,3 +65,9 @@ forntend/dist/
 # Runtime uploaded files
 # =========================
 backend/SoftwareServicePlatform.Api/Storage/
+
+
+# =========================
+# Docker runtime data
+# =========================
+docker-data/
