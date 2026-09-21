@@ -1,0 +1,239 @@
+# ============================================================
+# SoftwareServicePlatform
+# Production Docker Compose
+# ============================================================
+#
+# 正式服务器版本：
+#
+#   frontend
+#      ↓
+#   api
+#      ↓
+#   postgres
+#
+# 对外只开放 frontend。
+#
+# PostgreSQL 和 ASP.NET Core
+# 只允许 Docker 内部网络访问。
+#
+# ============================================================
+
+
+services:
+
+  # ==========================================================
+  # PostgreSQL
+  # ==========================================================
+  postgres:
+
+    image: postgres:17
+
+    restart: unless-stopped
+
+
+    # ----------------------------------------------------------
+    # 数据库初始化配置
+    # ----------------------------------------------------------
+    environment:
+
+      POSTGRES_USER: ${POSTGRES_USER}
+
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+      POSTGRES_DB: ${POSTGRES_DB}
+
+
+    # ----------------------------------------------------------
+    # 数据持久化
+    # ----------------------------------------------------------
+    #
+    # 正式数据库必须持久化。
+    #
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+
+    # ----------------------------------------------------------
+    # 健康检查
+    # ----------------------------------------------------------
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"
+        ]
+
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+
+    # ----------------------------------------------------------
+    # 注意：
+    #
+    # 正式环境不写 ports。
+    #
+    # 所以服务器公网无法通过：
+    #
+    # 服务器IP:5432
+    #
+    # 直接访问数据库。
+    #
+    # API 仍然可以通过：
+    #
+    # postgres:5432
+    #
+    # 在 Docker 内网连接。
+    # ----------------------------------------------------------
+
+
+
+  # ==========================================================
+  # ASP.NET Core Web API
+  # ==========================================================
+  api:
+
+    build:
+      context: ./backend/SoftwareServicePlatform.Api
+      dockerfile: Dockerfile
+
+    image: software-service-api:prod
+
+    restart: unless-stopped
+
+
+    # PostgreSQL 真正 healthy 后再启动 API
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+
+    environment:
+
+      # ========================================================
+      # ASP.NET Core
+      # ========================================================
+
+      ASPNETCORE_ENVIRONMENT: Production
+
+      ASPNETCORE_URLS: http://+:8080
+
+
+      # ========================================================
+      # PostgreSQL
+      # ========================================================
+
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+
+
+      # ========================================================
+      # JWT
+      # ========================================================
+
+      Jwt__Issuer: SoftwareServicePlatform
+
+      Jwt__Audience: SoftwareServicePlatform.Client
+
+      Jwt__Key: ${JWT_KEY}
+
+      Jwt__ExpireMinutes: 120
+
+
+      # ========================================================
+      # 首次管理员
+      # ========================================================
+      #
+      # 新服务器第一次启动时：
+      #
+      # true
+      #
+      # 创建管理员成功以后改成：
+      #
+      # false
+      #
+      BootstrapAdmin__Enabled: ${BOOTSTRAP_ADMIN_ENABLED}
+
+      BootstrapAdmin__Username: ${BOOTSTRAP_ADMIN_USERNAME}
+
+      BootstrapAdmin__Password: ${BOOTSTRAP_ADMIN_PASSWORD}
+
+      BootstrapAdmin__DisplayName: ${BOOTSTRAP_ADMIN_DISPLAY_NAME}
+
+
+    # ----------------------------------------------------------
+    # 不暴露 5108
+    # ----------------------------------------------------------
+    #
+    # frontend 可以通过：
+    #
+    # api:8080
+    #
+    # 访问后端。
+    #
+    # 外部服务器不能直接访问 API。
+    # ----------------------------------------------------------
+
+
+    # ----------------------------------------------------------
+    # 软件包 / 更新包 / 附件
+    # ----------------------------------------------------------
+    #
+    # STORAGE_PATH 在生产 .env 中配置。
+    #
+    # 例如：
+    #
+    # /opt/software-service-platform/storage
+    #
+    volumes:
+
+      - ${STORAGE_PATH}:/app/storage
+
+      # ASP.NET Core DataProtection Key 持久化
+      #
+      # 防止 API Container 重建后密钥全部消失。
+      #
+      - data-protection:/root/.aspnet/DataProtection-Keys
+
+
+
+  # ==========================================================
+  # React + Nginx
+  # ==========================================================
+  frontend:
+
+    build:
+      context: ./forntend
+      dockerfile: Dockerfile
+
+    image: software-service-frontend:prod
+
+    restart: unless-stopped
+
+
+    depends_on:
+      - api
+
+
+    # ----------------------------------------------------------
+    # 正式环境当前先开放 HTTP 80
+    # ----------------------------------------------------------
+    #
+    # 后面配置域名和 HTTPS 时，
+    # 我们会继续处理 443。
+    #
+    ports:
+      - "80:80"
+
+
+
+# ============================================================
+# Docker 持久化数据
+# ============================================================
+
+volumes:
+
+  # PostgreSQL 数据
+  postgres-data:
+
+  # ASP.NET Core DataProtection Key
+  data-protection:
