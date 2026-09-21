@@ -44,8 +44,9 @@ interface UpdatePackageItem {
   softwareName: string;
   softwareCode: string;
 
-  version: string;
-  publishStatus: string;
+ version: string;
+versionType: string;
+publishStatus: string;
 
   hasUpdatePackage: boolean;
   fileCount: number;
@@ -57,7 +58,13 @@ interface UpdatePackageItem {
   fullPackageFileName: string;
   fullPackageFileSize: number;
 }
-
+interface PublishCustomer {
+  customerId: number;
+  name: string;
+  code: string;
+  province: string;
+  city: string;
+}
 interface GeneratedTokenResult {
   message: string;
 
@@ -162,7 +169,20 @@ function ClientUpdatePage() {
   const [manifestLoading, setManifestLoading] =
     useState(false);
 
+const [publishingVersion, setPublishingVersion] =
+  useState<UpdatePackageItem | null>(null);
 
+const [publishCustomers, setPublishCustomers] =
+  useState<PublishCustomer[]>([]);
+
+const [publishToAll, setPublishToAll] =
+  useState(true);
+
+const [selectedCustomerIds, setSelectedCustomerIds] =
+  useState<number[]>([]);
+
+const [isPublishing, setIsPublishing] =
+  useState(false);
   async function loadData() {
     try {
       setLoading(true);
@@ -707,7 +727,188 @@ function ClientUpdatePage() {
       );
     }
   }
+async function openPublishDialog(
+  item: UpdatePackageItem,
+) {
+  if (item.versionType === "Dev") {
+    alert(
+      "Dev 版本仅供内部使用，不能发布给客户",
+    );
 
+    return;
+  }
+
+  try {
+    const response =
+      await apiFetch(
+        `/api/softwareversions/${item.versionId}/publish-customers`,
+      );
+
+    if (!response.ok) {
+      const text =
+        await response.text();
+
+      throw new Error(
+        text ||
+          `获取发布客户失败：${response.status}`,
+      );
+    }
+
+    const customers =
+      (await response.json()) as
+        PublishCustomer[];
+
+    setPublishCustomers(
+      customers,
+    );
+
+    setPublishingVersion(
+      item,
+    );
+
+    /*
+     * Beta 只能指定客户。
+     * Release 默认全部授权客户。
+     */
+    if (item.versionType === "Beta") {
+      setPublishToAll(
+        false,
+      );
+    } else {
+      setPublishToAll(
+        true,
+      );
+    }
+
+    setSelectedCustomerIds(
+      [],
+    );
+  } catch (error) {
+    console.error(
+      "获取发布客户失败：",
+      error,
+    );
+
+    alert(
+      error instanceof Error
+        ? error.message
+        : "获取发布客户失败",
+    );
+  }
+}
+
+
+function togglePublishCustomer(
+  customerId: number,
+) {
+  setSelectedCustomerIds(
+    (current) =>
+      current.includes(customerId)
+        ? current.filter(
+            (id) =>
+              id !== customerId,
+          )
+        : [
+            ...current,
+            customerId,
+          ],
+  );
+}
+
+
+async function confirmPublishVersion() {
+  if (!publishingVersion) {
+    return;
+  }
+
+  if (
+    !publishToAll
+    &&
+    selectedCustomerIds.length === 0
+  ) {
+    alert(
+      "请选择至少一个发布客户",
+    );
+
+    return;
+  }
+
+  try {
+    setIsPublishing(
+      true,
+    );
+
+    const response =
+      await apiFetch(
+        `/api/softwareversions/${publishingVersion.versionId}/publish`,
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          body: JSON.stringify({
+            publishToAll:
+              publishToAll,
+
+            customerIds:
+              selectedCustomerIds,
+          }),
+        },
+      );
+
+    if (!response.ok) {
+      const text =
+        await response.text();
+
+      throw new Error(
+        text ||
+          `发布失败：${response.status}`,
+      );
+    }
+
+    const customerCount =
+      publishToAll
+        ? publishCustomers.length
+        : selectedCustomerIds.length;
+
+    alert(
+      `${publishingVersion.softwareName} ${publishingVersion.version} 发布成功。\n\n`
+      + `已发布给 ${customerCount} 家客户，客户端现在可以检测到该版本。`,
+    );
+
+    setPublishingVersion(
+      null,
+    );
+
+    setPublishCustomers(
+      [],
+    );
+
+    setSelectedCustomerIds(
+      [],
+    );
+
+    await loadData();
+  } catch (error) {
+    console.error(
+      "发布版本失败：",
+      error,
+    );
+
+    alert(
+      error instanceof Error
+        ? error.message
+        : "发布版本失败",
+    );
+  } finally {
+    setIsPublishing(
+      false,
+    );
+  }
+}
 
   function formatFileSize(
     value: number,
@@ -1094,9 +1295,15 @@ function ClientUpdatePage() {
                       </small>
                     </td>
 
-                    <td>
-                      {item.version}
-                    </td>
+                 <td>
+  <strong>
+    {item.version}
+  </strong>
+
+  <small>
+    {item.versionType}
+  </small>
+</td>
 
                     <td>
                       {item.publishStatus}
@@ -1186,6 +1393,23 @@ function ClientUpdatePage() {
                             查看清单
                           </button>
                         )}
+                        {item.publishStatus === "Draft"
+  &&
+  item.hasUpdatePackage
+  &&
+  item.versionType !== "Dev" && (
+    <button
+      type="button"
+      className="primary-button"
+      onClick={() =>
+        void openPublishDialog(
+          item,
+        )
+      }
+    >
+      发布
+    </button>
+  )}
 
                         {item.publishStatus === "Draft"
                           &&
@@ -1500,7 +1724,195 @@ function ClientUpdatePage() {
           </div>
         </div>
       )}
+{publishingVersion && (
+  <div className="version-attachment-mask">
+    <div className="client-update-dialog">
+      <div className="client-update-dialog-title">
+        <CheckCircle2 size={22} />
 
+        <div>
+          <h3>
+            发布自动更新版本
+          </h3>
+
+          <p>
+            {publishingVersion.softwareName}
+            {" · "}
+            {publishingVersion.version}
+            {" · "}
+            {publishingVersion.versionType}
+          </p>
+        </div>
+      </div>
+
+      <div className="client-update-secret-warning">
+        发布后该版本的自动更新 ZIP 将锁定。
+        客户端只有在版本已发布并且属于发布范围时，
+        才能检测到该版本。
+      </div>
+
+      <div className="form-section">
+        <h4>
+          发布范围
+        </h4>
+
+        <label>
+          <input
+            type="radio"
+            checked={
+              publishToAll
+            }
+            disabled={
+              publishingVersion.versionType
+                === "Beta"
+            }
+            onChange={() =>
+              setPublishToAll(
+                true,
+              )
+            }
+          />
+
+          {" "}
+          全部授权客户
+          {" "}
+          （{publishCustomers.length} 家）
+        </label>
+
+        <br />
+
+        <label>
+          <input
+            type="radio"
+            checked={
+              !publishToAll
+            }
+            onChange={() =>
+              setPublishToAll(
+                false,
+              )
+            }
+          />
+
+          {" "}
+          指定客户
+        </label>
+      </div>
+
+      {!publishToAll && (
+        <div className="form-section">
+          <h4>
+            选择客户
+          </h4>
+
+          {publishCustomers.length === 0 ? (
+            <div className="client-update-empty">
+              当前没有已授权客户
+            </div>
+          ) : (
+            publishCustomers.map(
+              (customer) => (
+                <label
+                  key={
+                    customer.customerId
+                  }
+                  style={{
+                    display: "block",
+                    marginBottom: 10,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={
+                      selectedCustomerIds
+                        .includes(
+                          customer.customerId,
+                        )
+                    }
+                    onChange={() =>
+                      togglePublishCustomer(
+                        customer.customerId,
+                      )
+                    }
+                  />
+
+                  {" "}
+                  {customer.name}
+                  {" · "}
+                  {customer.code}
+
+                  {(customer.province
+                    ||
+                    customer.city) && (
+                    <>
+                      {" · "}
+                      {customer.province}
+                      {customer.city}
+                    </>
+                  )}
+                </label>
+              ),
+            )
+          )}
+        </div>
+      )}
+
+      {publishingVersion.versionType
+        === "Beta" && (
+        <div className="client-update-package-tip">
+          Beta 版本只能发布给指定客户。
+        </div>
+      )}
+
+      <div className="form-buttons">
+        <button
+          type="button"
+          className="primary-button"
+          disabled={
+            isPublishing
+            ||
+            (
+              !publishToAll
+              &&
+              selectedCustomerIds.length
+                === 0
+            )
+          }
+          onClick={() =>
+            void confirmPublishVersion()
+          }
+        >
+          {isPublishing
+            ? "发布中..."
+            : "确认发布"}
+        </button>
+
+        <button
+          type="button"
+          className="normal-button"
+          disabled={
+            isPublishing
+          }
+          onClick={() => {
+            setPublishingVersion(
+              null,
+            );
+
+            setPublishCustomers(
+              [],
+            );
+
+            setSelectedCustomerIds(
+              [],
+            );
+          }}
+        >
+          取消
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 
       {loading && (
         <div className="dashboard-empty">
