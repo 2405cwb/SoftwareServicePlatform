@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using SoftwareServicePlatform.Api.Data;
@@ -11,9 +12,11 @@ using SoftwareServicePlatform.Api.Data;
 namespace SoftwareServicePlatform.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260921032742_ExtendDownloadRecordsForAutoUpdate")]
+    partial class ExtendDownloadRecordsForAutoUpdate
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -21,50 +24,6 @@ namespace SoftwareServicePlatform.Api.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
-
-            modelBuilder.Entity("SoftwareServicePlatform.Api.Models.ClientUpdateCredential", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("CustomerSoftwareId")
-                        .HasColumnType("integer");
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTime?>("LastUsedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("TokenHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("TokenPrefix")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CustomerSoftwareId")
-                        .IsUnique();
-
-                    b.HasIndex("TokenHash")
-                        .IsUnique();
-
-                    b.ToTable("ClientUpdateCredentials");
-                });
 
             modelBuilder.Entity("SoftwareServicePlatform.Api.Models.Customer", b =>
                 {
@@ -953,17 +912,6 @@ namespace SoftwareServicePlatform.Api.Migrations
                         .IsUnique();
 
                     b.ToTable("Users");
-                });
-
-            modelBuilder.Entity("SoftwareServicePlatform.Api.Models.ClientUpdateCredential", b =>
-                {
-                    b.HasOne("SoftwareServicePlatform.Api.Models.CustomerSoftware", "CustomerSoftware")
-                        .WithOne()
-                        .HasForeignKey("SoftwareServicePlatform.Api.Models.ClientUpdateCredential", "CustomerSoftwareId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("CustomerSoftware");
                 });
 
             modelBuilder.Entity("SoftwareServicePlatform.Api.Models.CustomerSoftware", b =>

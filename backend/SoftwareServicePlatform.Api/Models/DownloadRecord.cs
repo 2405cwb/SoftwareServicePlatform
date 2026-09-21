@@ -116,10 +116,71 @@
 
         /// <summary>
         /// 安装包文件大小。
+        /// 手动下载      → 安装包实际大小
+        //自动增量更新  → 实际下载的变化文件总大小
+        //自动完整更新  → 完整安装包大小
         /// </summary>
         public long FileSize { get; set; }
 
+        // =====================================================
+        // 下载 / 更新方式
+        // =====================================================
 
+        /// <summary>
+        /// 下载类型：
+        ///
+        /// ManualPackage     客户门户手动下载安装包
+        /// AutoIncremental   客户端文件级自动更新
+        /// AutoFullPackage   自动更新失败后下载完整安装包
+        /// </summary>
+        public string DownloadType { get; set; } =
+            "ManualPackage";
+
+
+        /// <summary>
+        /// 自动更新前的版本。
+        ///
+        /// 手动下载安装包时为空。
+        /// </summary>
+        public string FromVersion { get; set; } =
+            string.Empty;
+
+
+        /// <summary>
+        /// 自动更新目标版本。
+        ///
+        /// 手动下载时通常与 Version 相同。
+        /// </summary>
+        public string ToVersion { get; set; } =
+            string.Empty;
+
+
+        /// <summary>
+        /// 自动更新实际需要下载的文件数量。
+        /// 手动完整安装包下载时为 1。
+        /// </summary>
+        public int FileCount { get; set; } = 1;
+
+
+        /// <summary>
+        /// 更新状态：
+        ///
+        /// Started
+        /// Success
+        /// Failed
+        ///
+        /// 普通网页下载直接记录 Success。
+        /// </summary>
+        public string Status { get; set; } =
+            "Success";
+
+
+        /// <summary>
+        /// 自动更新失败原因。
+        /// 成功时为空。
+        /// </summary>
+        public string ErrorMessage { get; set; } =
+            string.Empty;
         // =====================================================
         // 时间
         // =====================================================

@@ -1,8 +1,7 @@
-using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using SoftwareServicePlatform.Updater;
-using System.Runtime.InteropServices;
-using System.Text;
+
 internal static class Program
 {
     private static readonly JsonSerializerOptions
@@ -14,16 +13,69 @@ internal static class Program
             };
 
 
-    public static async Task<int> Main(
+    /// <summary>
+    /// WinForms Updater 程序入口。
+    ///
+    /// 现在 Updater 不再使用黑色控制台窗口，
+    /// 而是启动正式的更新进度窗口 UpdaterForm。
+    ///
+    /// 流程：
+    ///
+    /// 1. 解析命令行参数；
+    /// 2. 读取 updater.json；
+    /// 3. 校验配置；
+    /// 4. 确定 AppRoot；
+    /// 5. 读取需要等待退出的主程序 PID；
+    /// 6. 启动 UpdaterForm；
+    /// 7. 更新完成后返回窗口的 ExitCode。
+    /// </summary>
+    [STAThread]
+    public static int Main(
         string[] args)
     {
         try
         {
+            /*
+             * .NET 6+ WinForms 推荐初始化方式。
+             *
+             * 它会初始化：
+             *
+             * 高 DPI
+             * 默认字体
+             * VisualStyles
+             *
+             * 必须在创建任何 Form 之前调用。
+             */
+            ApplicationConfiguration.Initialize();
+
+
+            /*
+             * ==========================================
+             * 1. 解析命令行参数
+             * ==========================================
+             *
+             * 支持：
+             *
+             * --config xxx.json
+             * --app-root "C:\xxx"
+             * --wait-pid 1234
+             */
             var arguments =
                 ParseArguments(
                     args
                 );
 
+
+            /*
+             * ==========================================
+             * 2. 确定 updater.json 路径
+             * ==========================================
+             *
+             * 如果没有显式传 --config，
+             * 默认读取 Updater.exe 同目录下：
+             *
+             * updater.json
+             */
             var configPath =
                 arguments.TryGetValue(
                     "config",
@@ -36,8 +88,11 @@ internal static class Program
                         "updater.json"
                     );
 
-            if (!File.Exists(
-                    configPath))
+
+            if (
+                !File.Exists(
+                    configPath)
+            )
             {
                 throw new FileNotFoundException(
                     "找不到 updater.json",
@@ -45,26 +100,42 @@ internal static class Program
                 );
             }
 
+
+            /*
+             * ==========================================
+             * 3. 读取 updater.json
+             * ==========================================
+             */
+            var configText =
+                File.ReadAllText(
+                    configPath,
+                    Encoding.UTF8
+                );
+
+
             var config =
                 JsonSerializer
                     .Deserialize<
                         UpdaterConfig>(
-                            await File
-                                .ReadAllTextAsync(
-                                    configPath
-                                ),
+                            configText,
                             JsonOptions
                         )
                 ?? throw new InvalidOperationException(
                     "updater.json 格式无效"
                 );
 
+
             ValidateConfig(
                 config
             );
 
+
             /*
-             * 推荐目录：
+             * ==========================================
+             * 4. 确定主程序根目录 AppRoot
+             * ==========================================
+             *
+             * 推荐目录结构：
              *
              * AppRoot/
              * ├─ MainApp.exe
@@ -73,7 +144,10 @@ internal static class Program
              *    ├─ SoftwareServicePlatform.Updater.exe
              *    └─ updater.json
              *
-             * 因此默认 AppRoot = Updater 所在目录的上一级。
+             * 因此：
+             *
+             * 如果没有传 --app-root，
+             * 默认使用 Updater 所在目录的上一级。
              */
             var appRoot =
                 arguments.TryGetValue(
@@ -89,8 +163,33 @@ internal static class Program
                         )
                     );
 
+
+            if (
+                !Directory.Exists(
+                    appRoot)
+            )
+            {
+                throw new DirectoryNotFoundException(
+                    $"主程序目录不存在：{appRoot}"
+                );
+            }
+
+
+            /*
+             * ==========================================
+             * 5. 获取需要等待退出的主程序 PID
+             * ==========================================
+             *
+             * 主程序启动 Updater 时通常会传：
+             *
+             * --wait-pid 当前主程序PID
+             *
+             * Updater 可以先下载，
+             * 真正替换文件之前再等待该进程退出。
+             */
             int? waitPid =
                 null;
+
 
             if (
                 arguments.TryGetValue(
@@ -108,93 +207,86 @@ internal static class Program
                     pid;
             }
 
-            var engine =
-                new UpdaterEngine(
-                    config,
-                    appRoot
-                );
-
-            var currentVersion =
-                engine.ReadCurrentVersion();
-
-            Console.WriteLine(
-                $"当前版本：{currentVersion}"
-            );
-
-            var update =
-                await engine.CheckAsync(
-                    currentVersion
-                );
-
-            if (!update.HasUpdate)
-            {
-                Console.WriteLine(
-                    "当前已经是最新版本。"
-                );
-
-                return 0;
-            }
-
-            Console.WriteLine(
-                $"发现新版本：{update.LatestVersion}"
-            );
-
-            Console.WriteLine(
-                $"强制升级：{(update.ForceUpdate ? "是" : "否")}"
-            );
-
-            if (
-                !string.IsNullOrWhiteSpace(
-                    update.ReleaseNotes)
-            )
-            {
-                Console.WriteLine(
-                    "更新说明："
-                );
-
-                Console.WriteLine(
-                    update.ReleaseNotes
-                );
-            }
 
             /*
-             * 本 Updater 的职责是“执行已经确认的更新”。
+             * ==========================================
+             * 6. 启动正式更新窗口
+             * ==========================================
              *
-             * 是否弹窗、是否允许稍后更新，
-             * 由主程序决定。
+             * UpdaterForm 内部负责：
              *
-             * Qt / WinForms 示例中：
-             *
-             * 主程序先调用 check 接口
-             * ↓
-             * 用户点击“立即更新”
-             * ↓
-             * 启动本 Updater
-             * ↓
-             * 主程序退出
+             * 检查版本
+             * 显示检查进度
+             * 显示下载进度
+             * 显示安装进度
+             * 调用 UpdaterEngine
+             * 更新完成后自动关闭
              */
-            await engine.ApplyAsync(
-                update,
-                waitPid
+            using var form =
+                new UpdaterForm(
+                    config,
+                    appRoot,
+                    waitPid
+                );
+
+
+            Application.Run(
+                form
             );
 
-            return 0;
+
+            /*
+             * UpdaterForm：
+             *
+             * 0 = 成功
+             * 1 = 失败
+             */
+            return form.ExitCode;
         }
         catch (Exception ex)
         {
-            WriteFailureLog(ex);
+            /*
+             * 这里主要处理：
+             *
+             * updater.json 不存在
+             * JSON 格式错误
+             * 配置字段错误
+             * AppRoot 不存在
+             * Form 尚未创建之前发生的错误
+             *
+             * UpdaterForm 启动后的业务异常，
+             * 由 UpdaterForm 自己处理。
+             */
+            WriteFailureLog(
+                ex
+            );
 
-            Console.Error.WriteLine(
-                "自动更新失败："
-                + ex);
 
-            ShowErrorMessage(ex);
+            ShowStartupError(
+                ex
+            );
+
 
             return 1;
         }
     }
 
 
+    /// <summary>
+    /// 解析命令行参数。
+    ///
+    /// 例如：
+    ///
+    /// --config updater.json
+    /// --app-root "C:\Program Files\MyApp"
+    /// --wait-pid 1234
+    ///
+    /// 最终解析成：
+    ///
+    /// config   -> updater.json
+    /// app-root -> C:\Program Files\MyApp
+    /// wait-pid -> 1234
+    /// </summary>
     private static Dictionary<
         string,
         string>
@@ -209,6 +301,7 @@ internal static class Program
                         .OrdinalIgnoreCase
                 );
 
+
         for (
             var i = 0;
             i < args.Length;
@@ -218,24 +311,54 @@ internal static class Program
             var key =
                 args[i];
 
+
+            /*
+             * 只处理：
+             *
+             * --xxx
+             *
+             * 普通参数直接忽略。
+             */
             if (
                 !key.StartsWith(
-                    "--")
+                    "--",
+                    StringComparison.Ordinal)
             )
             {
                 continue;
             }
 
+
             key =
                 key[2..];
 
+
+            if (
+                string.IsNullOrWhiteSpace(
+                    key)
+            )
+            {
+                continue;
+            }
+
+
+            /*
+             * 如果后面还有一个不是 -- 开头的值，
+             * 就把它作为当前参数值。
+             *
+             * 例如：
+             *
+             * --wait-pid 1234
+             */
             if (
                 i + 1
-                < args.Length
+                <
+                args.Length
                 &&
                 !args[i + 1]
                     .StartsWith(
-                        "--")
+                        "--",
+                        StringComparison.Ordinal)
             )
             {
                 result[key] =
@@ -243,18 +366,38 @@ internal static class Program
             }
             else
             {
+                /*
+                 * 支持纯开关参数：
+                 *
+                 * --xxx
+                 *
+                 * 当前虽然还没有使用，
+                 * 但保留通用解析能力。
+                 */
                 result[key] =
                     "true";
             }
         }
 
+
         return result;
     }
 
 
+    /// <summary>
+    /// 校验 updater.json 中的核心配置。
+    ///
+    /// 配置错误必须尽早发现，
+    /// 不要等到更新到一半才失败。
+    /// </summary>
     private static void ValidateConfig(
         UpdaterConfig config)
     {
+        /*
+         * ==========================================
+         * serverUrl
+         * ==========================================
+         */
         if (
             !Uri.TryCreate(
                 config.ServerUrl,
@@ -263,10 +406,12 @@ internal static class Program
             ||
             (
                 serverUri.Scheme
-                != Uri.UriSchemeHttps
+                !=
+                Uri.UriSchemeHttps
                 &&
                 serverUri.Scheme
-                != Uri.UriSchemeHttp
+                !=
+                Uri.UriSchemeHttp
             )
         )
         {
@@ -275,6 +420,12 @@ internal static class Program
             );
         }
 
+
+        /*
+         * ==========================================
+         * softwareCode
+         * ==========================================
+         */
         if (
             string.IsNullOrWhiteSpace(
                 config.SoftwareCode)
@@ -285,6 +436,18 @@ internal static class Program
             );
         }
 
+
+        /*
+         * ==========================================
+         * updateToken
+         * ==========================================
+         *
+         * UpdateToken 是当前：
+         *
+         * 客户 + 软件
+         *
+         * 的自动更新凭证。
+         */
         if (
             string.IsNullOrWhiteSpace(
                 config.UpdateToken)
@@ -295,6 +458,15 @@ internal static class Program
             );
         }
 
+
+        /*
+         * ==========================================
+         * versionFile
+         * ==========================================
+         *
+         * 如果没有填写，
+         * 默认使用 version.txt。
+         */
         if (
             string.IsNullOrWhiteSpace(
                 config.VersionFile)
@@ -303,71 +475,110 @@ internal static class Program
             config.VersionFile =
                 "version.txt";
         }
+
+
+        /*
+         * ==========================================
+         * waitForProcessSeconds
+         * ==========================================
+         *
+         * 防止配置成负数或 0。
+         */
+        if (
+            config.WaitForProcessSeconds
+            <= 0
+        )
+        {
+            config.WaitForProcessSeconds =
+                60;
+        }
     }
 
 
+    /// <summary>
+    /// Program 启动阶段发生异常时写 updater.log。
+    ///
+    /// UpdaterEngine 自己也会写 updater.log，
+    /// 两边共用同一个日志文件。
+    /// </summary>
     private static void WriteFailureLog(
-    Exception ex)
+        Exception ex)
     {
         try
         {
             var logPath =
                 Path.Combine(
                     AppContext.BaseDirectory,
-                    "updater.log");
+                    "updater.log"
+                );
+
 
             var message =
                 $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] "
-                + "自动更新失败："
-                + ex
-                + Environment.NewLine;
+                +
+                "Updater 启动失败："
+                +
+                ex
+                +
+                Environment.NewLine;
+
 
             File.AppendAllText(
                 logPath,
                 message,
-                Encoding.UTF8);
+                Encoding.UTF8
+            );
         }
         catch
         {
-            // 日志写入失败不能覆盖原始错误。
+            /*
+             * 日志失败不能覆盖真正的启动异常。
+             */
         }
     }
 
 
-    private static void ShowErrorMessage(
+    /// <summary>
+    /// UpdaterForm 尚未创建之前发生错误时，
+    /// 使用 WinForms MessageBox 告知用户。
+    ///
+    /// 因为现在项目已经是 WinExe，
+    /// 不再依赖 Console.Error。
+    /// </summary>
+    private static void ShowStartupError(
         Exception ex)
     {
         try
         {
-            var message =
-                "自动更新失败。\r\n\r\n"
-                + ex.Message
-                + "\r\n\r\n"
-                + "详细信息已写入：\r\n"
-                + Path.Combine(
+            var logPath =
+                Path.Combine(
                     AppContext.BaseDirectory,
-                    "updater.log");
+                    "updater.log"
+                );
 
-            MessageBoxW(
-                IntPtr.Zero,
-                message,
+
+            MessageBox.Show(
+                "自动更新程序启动失败。\r\n\r\n"
+                +
+                ex.Message
+                +
+                "\r\n\r\n"
+                +
+                "详细信息已写入：\r\n"
+                +
+                logPath,
                 "软件自动更新失败",
-                0x00000010);
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error
+            );
         }
         catch
         {
-            // 弹窗失败时仍然保留控制台和日志。
+            /*
+             * 极端情况下 MessageBox 也可能失败。
+             *
+             * 此时至少 WriteFailureLog 已经尝试写入日志。
+             */
         }
     }
-
-
-    [DllImport(
-        "user32.dll",
-        CharSet = CharSet.Unicode,
-        SetLastError = true)]
-    private static extern int MessageBoxW(
-        IntPtr hWnd,
-        string text,
-        string caption,
-        uint type);
 }

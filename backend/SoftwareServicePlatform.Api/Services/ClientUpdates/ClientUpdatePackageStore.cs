@@ -24,6 +24,45 @@ namespace SoftwareServicePlatform.Api.Services.ClientUpdates
     /// </summary>
     public sealed class ClientUpdatePackageStore
     {
+
+        /*
+ * ==========================================
+ * 更新 ZIP 安全限制
+ * ==========================================
+ *
+ * 防止异常 ZIP / ZIP Bomb：
+ *
+ * 1. 文件数量过多；
+ * 2. 单个文件解压后异常巨大；
+ * 3. 整个 ZIP 解压后占满服务器磁盘。
+ */
+
+        private const int
+            MaxZipFileCount =
+                20000;
+
+
+        /*
+         * 单个解压文件最大 4 GB。
+         */
+        private const long
+            MaxSingleFileSize =
+                4L
+                * 1024
+                * 1024
+                * 1024;
+
+
+        /*
+         * 一个更新包解压后总大小最大 20 GB。
+         */
+        private const long
+            MaxTotalExtractedSize =
+                20L
+                * 1024
+                * 1024
+                * 1024;
+
         private static readonly JsonSerializerOptions
             JsonOptions =
                 new()
@@ -694,132 +733,503 @@ namespace SoftwareServicePlatform.Api.Services.ClientUpdates
 
 
         private static void SafeExtractZip(
-    string zipPath,
-    string extractRoot)
+     string zipPath,
+     string extractRoot)
         {
+            /*
+             * 保留 CP936 支持。
+             *
+             * 主要兼容 Bandizip / Windows 环境中
+             * 一部分中文 ZIP 文件名。
+             */
             Encoding.RegisterProvider(
-    CodePagesEncodingProvider.Instance);
+                CodePagesEncodingProvider.Instance
+            );
 
             var zipEntryEncoding =
                 Encoding.GetEncoding(936);
+
 
             using var zipStream =
                 new FileStream(
                     zipPath,
                     FileMode.Open,
                     FileAccess.Read,
-                    FileShare.Read);
+                    FileShare.Read
+                );
+
 
             using var archive =
                 new ZipArchive(
                     zipStream,
                     ZipArchiveMode.Read,
                     leaveOpen: false,
-                    entryNameEncoding: zipEntryEncoding);
+                    entryNameEncoding:
+                        zipEntryEncoding
+                );
+
 
             /*
-             * 记录每一个已经成功解压的文件。
-             *
-             * 如果后面出现目标路径冲突，
-             * 可以直接知道：
-             *
-             * 当前 ZIP Entry 是谁；
-             * 前一个写入这个位置的 Entry 是谁。
+             * ==========================================
+             * 第一阶段：
+             * 解压前先检查 ZIP 清单
+             * ==========================================
              */
-            var extractedEntries =
-                new Dictionary<string, string>(
-                    StringComparer.OrdinalIgnoreCase);
 
-            foreach (var entry in archive.Entries)
+            var fileCount =
+                0;
+
+            long declaredTotalSize =
+                0;
+
+
+            foreach (
+                var entry
+                in archive.Entries)
             {
                 var rawPath =
                     entry.FullName
                         .Replace('\\', '/');
 
+
+                /*
+                 * 目录 Entry 不计文件数量和大小。
+                 */
+                if (
+                    rawPath.EndsWith('/')
+                )
+                {
+                    continue;
+                }
+
+
+                fileCount++;
+
+
+                /*
+                 * 文件数量限制。
+                 */
+                if (
+                    fileCount
+                    >
+                    MaxZipFileCount
+                )
+                {
+                    throw new InvalidDataException(
+                        $"更新 ZIP 文件数量过多。"
+                        +
+                        $"最大允许 {MaxZipFileCount} 个文件。"
+                    );
+                }
+
+
+                /*
+                 * 单文件声明大小限制。
+                 */
+                if (
+                    entry.Length
+                    >
+                    MaxSingleFileSize
+                )
+                {
+                    throw new InvalidDataException(
+                        "更新 ZIP 中存在超大文件。\r\n"
+                        +
+                        $"文件：{entry.FullName}\r\n"
+                        +
+                        $"文件大小：{FormatBytes(entry.Length)}\r\n"
+                        +
+                        $"单文件最大允许：{FormatBytes(MaxSingleFileSize)}"
+                    );
+                }
+
+
+                /*
+                 * 防止 long 溢出。
+                 */
+                try
+                {
+                    declaredTotalSize =
+                        checked(
+                            declaredTotalSize
+                            +
+                            entry.Length
+                        );
+                }
+                catch (
+                    OverflowException)
+                {
+                    throw new InvalidDataException(
+                        "更新 ZIP 解压大小异常"
+                    );
+                }
+
+
+                /*
+                 * 总解压大小限制。
+                 */
+                if (
+                    declaredTotalSize
+                    >
+                    MaxTotalExtractedSize
+                )
+                {
+                    throw new InvalidDataException(
+                        "更新 ZIP 解压后总大小过大。\r\n"
+                        +
+                        $"当前声明大小：{FormatBytes(declaredTotalSize)}\r\n"
+                        +
+                        $"最大允许：{FormatBytes(MaxTotalExtractedSize)}"
+                    );
+                }
+            }
+
+
+            /*
+             * ==========================================
+             * 第二阶段：
+             * 真正开始安全解压
+             * ==========================================
+             *
+             * 不能只相信 ZIP Header 中声明的 Length。
+             *
+             * 解压过程中还要按照实际写入字节数
+             * 再做一次限制。
+             */
+
+            long actualTotalSize =
+                0;
+
+
+            /*
+             * 记录已经成功解压的目标文件。
+             *
+             * Windows 路径默认大小写不敏感，
+             * 用于发现：
+             *
+             * A.dll
+             * a.dll
+             *
+             * 等冲突。
+             */
+            var extractedEntries =
+                new Dictionary<
+                    string,
+                    string>(
+                        StringComparer
+                            .OrdinalIgnoreCase
+                    );
+
+
+            foreach (
+                var entry
+                in archive.Entries)
+            {
+                var rawPath =
+                    entry.FullName
+                        .Replace('\\', '/');
+
+
                 /*
                  * ZIP 目录项。
                  */
-                if (rawPath.EndsWith('/'))
+                if (
+                    rawPath.EndsWith('/')
+                )
                 {
                     var directoryRelative =
-                        rawPath.TrimEnd('/');
+                        rawPath
+                            .TrimEnd('/');
 
-                    if (string.IsNullOrWhiteSpace(
-                            directoryRelative))
+
+                    if (
+                        string.IsNullOrWhiteSpace(
+                            directoryRelative)
+                    )
                     {
                         continue;
                     }
 
+
                     var directoryPath =
                         GetSafeCombinedPath(
                             extractRoot,
-                            directoryRelative);
+                            directoryRelative
+                        );
+
 
                     Directory.CreateDirectory(
-                        directoryPath);
+                        directoryPath
+                    );
+
 
                     continue;
                 }
 
+
                 var relativePath =
                     NormalizeRelativePath(
-                        rawPath);
+                        rawPath
+                    );
+
 
                 var destinationPath =
                     GetSafeCombinedPath(
                         extractRoot,
-                        relativePath);
+                        relativePath
+                    );
+
 
                 Directory.CreateDirectory(
                     Path.GetDirectoryName(
-                        destinationPath)!);
+                        destinationPath
+                    )!
+                );
+
 
                 /*
-                 * 当前代码真正发生异常的位置。
-                 *
-                 * 这里把详细信息一起返回，
-                 * 不再只显示一句“ZIP 存在重复文件”。
+                 * ZIP 内不能有多个 Entry
+                 * 最终落到同一个 Windows 文件路径。
                  */
-                if (File.Exists(destinationPath))
+                if (
+                    File.Exists(
+                        destinationPath)
+                    ||
+                    extractedEntries
+                        .ContainsKey(
+                            destinationPath)
+                )
                 {
-                    extractedEntries.TryGetValue(
-                        destinationPath,
-                        out var previousEntry);
+                    extractedEntries
+                        .TryGetValue(
+                            destinationPath,
+                            out var previousEntry
+                        );
+
 
                     throw new InvalidDataException(
                         "ZIP 解压目标路径发生冲突。\r\n"
-                        + $"当前 Entry：{entry.FullName}\r\n"
-                        + $"当前归一化路径：{relativePath}\r\n"
-                        + $"目标文件：{destinationPath}\r\n"
-                        + $"此前 Entry："
-                        + (previousEntry
-                            ?? "未记录（可能是 Windows 路径映射冲突）"));
+                        +
+                        $"当前 Entry：{entry.FullName}\r\n"
+                        +
+                        $"当前归一化路径：{relativePath}\r\n"
+                        +
+                        $"目标文件：{destinationPath}\r\n"
+                        +
+                        $"此前 Entry："
+                        +
+                        (
+                            previousEntry
+                            ??
+                            "未记录（可能是 Windows 路径映射冲突）"
+                        )
+                    );
                 }
+
 
                 try
                 {
-                    entry.ExtractToFile(
-                        destinationPath,
-                        overwrite: false);
+                    using var input =
+                        entry.Open();
+
+
+                    using var output =
+                        new FileStream(
+                            destinationPath,
+                            FileMode.CreateNew,
+                            FileAccess.Write,
+                            FileShare.None
+                        );
+
+
+                    var buffer =
+                        new byte[
+                            1024 * 1024
+                        ];
+
+
+                    long currentFileSize =
+                        0;
+
+
+                    while (true)
+                    {
+                        var read =
+                            input.Read(
+                                buffer,
+                                0,
+                                buffer.Length
+                            );
+
+
+                        if (
+                            read <= 0
+                        )
+                        {
+                            break;
+                        }
+
+
+                        /*
+                         * 当前单文件实际解压大小。
+                         */
+                        currentFileSize =
+                            checked(
+                                currentFileSize
+                                +
+                                read
+                            );
+
+
+                        /*
+                         * ZIP 整体实际解压大小。
+                         */
+                        actualTotalSize =
+                            checked(
+                                actualTotalSize
+                                +
+                                read
+                            );
+
+
+                        if (
+                            currentFileSize
+                            >
+                            MaxSingleFileSize
+                        )
+                        {
+                            throw new InvalidDataException(
+                                "ZIP 中单个文件实际解压大小超过限制。\r\n"
+                                +
+                                $"文件：{entry.FullName}\r\n"
+                                +
+                                $"最大允许：{FormatBytes(MaxSingleFileSize)}"
+                            );
+                        }
+
+
+                        if (
+                            actualTotalSize
+                            >
+                            MaxTotalExtractedSize
+                        )
+                        {
+                            throw new InvalidDataException(
+                                "ZIP 实际解压总大小超过限制。\r\n"
+                                +
+                                $"最大允许：{FormatBytes(MaxTotalExtractedSize)}"
+                            );
+                        }
+
+
+                        output.Write(
+                            buffer,
+                            0,
+                            read
+                        );
+                    }
+
 
                     extractedEntries[
-                        destinationPath] =
+                        destinationPath
+                    ] =
                         entry.FullName;
                 }
-                catch (Exception ex)
+                catch (
+                    Exception ex)
                 {
+                    /*
+                     * 当前文件可能只写了一部分。
+                     *
+                     * 尽量删除，
+                     * 最终 workingRoot 也会统一清理。
+                     */
+                    try
+                    {
+                        if (
+                            File.Exists(
+                                destinationPath)
+                        )
+                        {
+                            File.Delete(
+                                destinationPath
+                            );
+                        }
+                    }
+                    catch
+                    {
+                        // 不覆盖真正异常。
+                    }
+
+
+                    if (
+                        ex
+                        is InvalidDataException
+                    )
+                    {
+                        throw;
+                    }
+
+
                     throw new InvalidDataException(
                         "ZIP 文件解压失败。\r\n"
-                        + $"Entry：{entry.FullName}\r\n"
-                        + $"归一化路径：{relativePath}\r\n"
-                        + $"目标文件：{destinationPath}\r\n"
-                        + $"原因：{ex.Message}",
-                        ex);
+                        +
+                        $"Entry：{entry.FullName}\r\n"
+                        +
+                        $"归一化路径：{relativePath}\r\n"
+                        +
+                        $"目标文件：{destinationPath}\r\n"
+                        +
+                        $"原因：{ex.Message}",
+                        ex
+                    );
                 }
             }
         }
 
+        private static string FormatBytes(
+    long bytes)
+        {
+            const double kb =
+                1024;
 
+            const double mb =
+                kb * 1024;
+
+            const double gb =
+                mb * 1024;
+
+
+            if (
+                bytes >= gb
+            )
+            {
+                return
+                    $"{bytes / gb:F2} GB";
+            }
+
+
+            if (
+                bytes >= mb
+            )
+            {
+                return
+                    $"{bytes / mb:F2} MB";
+            }
+
+
+            if (
+                bytes >= kb
+            )
+            {
+                return
+                    $"{bytes / kb:F2} KB";
+            }
+
+
+            return
+                $"{bytes} B";
+        }
         private static string ResolveContentRoot(
             string extractRoot)
         {

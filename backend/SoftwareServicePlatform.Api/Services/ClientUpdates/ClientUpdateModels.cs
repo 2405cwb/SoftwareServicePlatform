@@ -164,4 +164,49 @@ namespace SoftwareServicePlatform.Api.Services.ClientUpdates
 
         public DateTime? LastUsedAt { get; set; }
     }
+
+    /// <summary>
+    /// 自动更新开始上报。
+    /// </summary>
+    public sealed class ClientUpdateReportStartRequest
+    {
+        public int VersionId { get; set; }
+
+        public string FromVersion { get; set; } =
+            string.Empty;
+
+        /// <summary>
+        /// AutoIncremental
+        /// AutoFullPackage
+        /// </summary>
+        public string DownloadType { get; set; } =
+            string.Empty;
+
+        public int FileCount { get; set; }
+
+        public long FileSize { get; set; }
+    }
+
+
+    /// <summary>
+    /// 自动更新开始上报返回值。
+    /// </summary>
+    public sealed class ClientUpdateReportStartResponse
+    {
+        public int RecordId { get; set; }
+    }
+
+
+    /// <summary>
+    /// 自动更新结束上报。
+    /// </summary>
+    public sealed class ClientUpdateReportCompleteRequest
+    {
+        public int RecordId { get; set; }
+
+        public bool Success { get; set; }
+
+        public string ErrorMessage { get; set; } =
+            string.Empty;
+    }
 }
