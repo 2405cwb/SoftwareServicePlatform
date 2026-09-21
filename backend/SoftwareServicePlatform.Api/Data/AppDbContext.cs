@@ -731,6 +731,49 @@ namespace SoftwareServicePlatform.Api.Data
                 .Property(x => x.Channel)
                 .HasMaxLength(50)
                 .IsRequired();
+
+            /*
+ * ==========================================
+ * ClientUpdateCredential
+ * 客户端自动更新凭证
+ * ==========================================
+ */
+
+            modelBuilder.Entity<ClientUpdateCredential>()
+                .HasOne(x => x.CustomerSoftware)
+                .WithOne()
+                .HasForeignKey<ClientUpdateCredential>(
+                    x => x.CustomerSoftwareId
+                )
+                .OnDelete(DeleteBehavior.Cascade);
+
+
+            /*
+             * 一个客户 + 软件绑定只能拥有一套更新凭证。
+             */
+            modelBuilder.Entity<ClientUpdateCredential>()
+                .HasIndex(x => x.CustomerSoftwareId)
+                .IsUnique();
+
+
+            /*
+             * TokenHash 全局唯一。
+             */
+            modelBuilder.Entity<ClientUpdateCredential>()
+                .HasIndex(x => x.TokenHash)
+                .IsUnique();
+
+
+            modelBuilder.Entity<ClientUpdateCredential>()
+                .Property(x => x.TokenHash)
+                .HasMaxLength(64)
+                .IsRequired();
+
+
+            modelBuilder.Entity<ClientUpdateCredential>()
+                .Property(x => x.TokenPrefix)
+                .HasMaxLength(64)
+                .IsRequired();
         }
         public DbSet<Models.Customer> Customers { get; set; } = null!;
         public DbSet<Software> Softwares { get; set; }
@@ -811,6 +854,14 @@ namespace SoftwareServicePlatform.Api.Data
         /// </summary>
         public DbSet<NotificationPolicyChannel>
             NotificationPolicyChannels
+        { get; set; } = null!;
+
+
+        /// <summary>
+        /// 客户端自动更新凭证。
+        /// </summary>
+        public DbSet<ClientUpdateCredential>
+            ClientUpdateCredentials
         { get; set; } = null!;
     }
 }

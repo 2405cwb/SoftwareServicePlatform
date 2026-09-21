@@ -17,7 +17,8 @@ namespace SoftwareServicePlatform.Updater
     /// 5. 成功后写 version.txt；
     /// 6. 自动重启主程序；
     /// 7. 增量失败可回退到完整安装包；
-    /// 8. 自动更新过程尽力上报到平台下载记录。
+    /// 8. 自动更新过程尽力上报到平台下载记录；
+    /// 9. 通过 IProgress 向 GUI 上报检查、下载、安装进度。
     /// </summary>
     public sealed class UpdaterEngine
     {
@@ -30,10 +31,22 @@ namespace SoftwareServicePlatform.Updater
         private readonly HttpClient
             _httpClient;
 
+        /*
+         * GUI 进度回调。
+         *
+         * UpdaterEngine 本身不依赖具体窗口，
+         * 只负责把“当前进行到哪一步”通过 IProgress 上报出去。
+         *
+         * 这样以后 WinForms / WPF / 其它界面都可以复用同一套更新核心。
+         */
+        private readonly IProgress<UpdaterProgress>?
+            _progress;
+
 
         public UpdaterEngine(
             UpdaterConfig config,
-            string appRoot)
+            string appRoot,
+            IProgress<UpdaterProgress>? progress = null)
         {
             _config =
                 config;
@@ -42,6 +55,9 @@ namespace SoftwareServicePlatform.Updater
                 Path.GetFullPath(
                     appRoot
                 );
+
+            _progress =
+                progress;
 
             _httpClient =
                 new HttpClient
@@ -431,13 +447,42 @@ namespace SoftwareServicePlatform.Updater
              * ==========================================
              * 1. 本地 SHA256 比较
              * ==========================================
+             *
+             * 这里会逐个比较目标清单和本地文件。
+             *
+             * 例如目标版本一共有 1309 个文件，
+             * 实际只有 14 个文件发生变化，
+             * 最终只会把这 14 个文件加入 changedFiles。
              */
-            foreach (
-                var file
-                in manifest.Files)
+            ReportProgress(
+                "正在检查本地文件...",
+                0,
+                manifest.Files.Count
+            );
+
+            for (
+                var fileIndex = 0;
+                fileIndex < manifest.Files.Count;
+                fileIndex++
+            )
             {
                 cancellationToken
                     .ThrowIfCancellationRequested();
+
+                var file =
+                    manifest.Files[
+                        fileIndex
+                    ];
+
+                /*
+                 * 把当前正在校验的文件展示到 GUI。
+                 */
+                ReportProgress(
+                    "正在检查本地文件...",
+                    fileIndex + 1,
+                    manifest.Files.Count,
+                    file.Path
+                );
 
                 var localPath =
                     GetSafeAppPath(
@@ -524,6 +569,18 @@ namespace SoftwareServicePlatform.Updater
                         $"下载 {i + 1}/{changedFiles.Count}：{file.Path}"
                     );
 
+                    /*
+                     * current 使用 i，
+                     * 表示“已有 i 个文件完整下载成功，
+                     * 当前正在下载第 i + 1 个”。
+                     */
+                    ReportProgress(
+                        "正在下载更新文件...",
+                        i,
+                        changedFiles.Count,
+                        file.Path
+                    );
+
                     var tempPath =
                         GetSafeChildPath(
                             tempRoot,
@@ -603,6 +660,17 @@ namespace SoftwareServicePlatform.Updater
                             $"下载文件 SHA256 校验失败：{file.Path}"
                         );
                     }
+
+                    /*
+                     * 文件完整下载并通过 SHA256 后，
+                     * 才把进度推进到 i + 1。
+                     */
+                    ReportProgress(
+                        "正在下载更新文件...",
+                        i + 1,
+                        changedFiles.Count,
+                        file.Path
+                    );
                 }
 
 
@@ -611,6 +679,11 @@ namespace SoftwareServicePlatform.Updater
                  * 3. 真正替换前等待主程序退出
                  * ==========================================
                  */
+                ReportProgress(
+                    "正在等待主程序退出...",
+                    indeterminate: true
+                );
+
                 await WaitForProcessExitAsync(
                     waitProcessId,
                     cancellationToken
@@ -622,6 +695,12 @@ namespace SoftwareServicePlatform.Updater
                  * 4. 备份 + 替换 + 删除
                  * ==========================================
                  */
+                ReportProgress(
+                    "正在安装更新...",
+                    0,
+                    changedFiles.Count
+                );
+
                 Directory.CreateDirectory(
                     backupRoot
                 );
@@ -638,10 +717,24 @@ namespace SoftwareServicePlatform.Updater
                  */
                 try
                 {
-                    foreach (
-                        var file
-                        in changedFiles)
+                    for (
+                        var installIndex = 0;
+                        installIndex < changedFiles.Count;
+                        installIndex++
+                    )
                     {
+                        var file =
+                            changedFiles[
+                                installIndex
+                            ];
+
+                        ReportProgress(
+                            "正在安装更新...",
+                            installIndex,
+                            changedFiles.Count,
+                            file.Path
+                        );
+
                         var destination =
                             GetSafeAppPath(
                                 file.Path
@@ -697,6 +790,16 @@ namespace SoftwareServicePlatform.Updater
                             source,
                             destination,
                             overwrite: true
+                        );
+
+                        /*
+                         * 当前文件替换成功后推进安装进度。
+                         */
+                        ReportProgress(
+                            "正在安装更新...",
+                            installIndex + 1,
+                            changedFiles.Count,
+                            file.Path
                         );
                     }
 
@@ -900,6 +1003,15 @@ namespace SoftwareServicePlatform.Updater
                     Log(
                         $"增量更新成功：{update.CurrentVersion} -> {update.LatestVersion}"
                     );
+
+                    /*
+                     * GUI 显示最终完成状态。
+                     */
+                    ReportProgress(
+                        $"更新完成：{update.CurrentVersion} → {update.LatestVersion}",
+                        1,
+                        1
+                    );
                 }
                 catch
                 {
@@ -1088,6 +1200,17 @@ namespace SoftwareServicePlatform.Updater
                     "正在下载完整安装包兜底..."
                 );
 
+                /*
+                 * 完整安装包目前使用流式 CopyToAsync，
+                 * 暂时不计算字节级百分比，
+                 * GUI 使用 Marquee 表示正在进行。
+                 */
+                ReportProgress(
+                    "正在下载完整安装包...",
+                    currentFile: fileName,
+                    indeterminate: true
+                );
+
                 using var response =
                     await _httpClient
                         .GetAsync(
@@ -1158,6 +1281,12 @@ namespace SoftwareServicePlatform.Updater
 
                 Log(
                     "启动完整安装程序。"
+                );
+
+                ReportProgress(
+                    "下载完成，正在启动安装程序...",
+                    currentFile: fileName,
+                    indeterminate: true
                 );
 
                 Process.Start(
@@ -1327,7 +1456,7 @@ namespace SoftwareServicePlatform.Updater
             var normalized =
                 (relativePath
                     ?? string.Empty)
-                .Replace('\\','/')
+                .Replace('\\', '/')
                 .Trim()
                 .TrimStart('/');
 
@@ -1451,6 +1580,60 @@ namespace SoftwareServicePlatform.Updater
         }
 
 
+        /// <summary>
+        /// 向外部 GUI 上报当前更新进度。
+        ///
+        /// UpdaterEngine 不直接操作任何控件，
+        /// 因此核心更新逻辑仍然可以独立测试和复用。
+        ///
+        /// message:
+        ///     当前阶段说明，例如“正在下载更新文件...”。
+        ///
+        /// current / total:
+        ///     当前完成数量和总数量。
+        ///
+        /// currentFile:
+        ///     当前处理文件，用于窗口中展示。
+        ///
+        /// indeterminate:
+        ///     无法准确计算百分比时设为 true，
+        ///     GUI 可使用 Marquee 进度条。
+        /// </summary>
+        private void ReportProgress(
+            string message,
+            int current = 0,
+            int total = 0,
+            string currentFile = "",
+            bool indeterminate = false)
+        {
+            _progress?.Report(
+                new UpdaterProgress
+                {
+                    Message =
+                        message,
+
+                    Current =
+                        current,
+
+                    Total =
+                        total,
+
+                    CurrentFile =
+                        currentFile,
+
+                    IsIndeterminate =
+                        indeterminate
+                }
+            );
+        }
+
+
+        /// <summary>
+        /// 更新器统一日志。
+        ///
+        /// 即使改成 WinExe 没有控制台，
+        /// updater.log 仍会保留完整更新过程。
+        /// </summary>
         private static void Log(
             string message)
         {
