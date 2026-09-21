@@ -121,4 +121,36 @@ namespace SoftwareServicePlatform.Updater
 
         public string Sha256 { get; set; } = string.Empty;
     }
+
+    public sealed class ClientUpdateReportStartRequest
+    {
+        public int VersionId { get; set; }
+
+        public string FromVersion { get; set; } =
+            string.Empty;
+
+        public string DownloadType { get; set; } =
+            string.Empty;
+
+        public int FileCount { get; set; }
+
+        public long FileSize { get; set; }
+    }
+
+
+    public sealed class ClientUpdateReportStartResponse
+    {
+        public int RecordId { get; set; }
+    }
+
+
+    public sealed class ClientUpdateReportCompleteRequest
+    {
+        public int RecordId { get; set; }
+
+        public bool Success { get; set; }
+
+        public string ErrorMessage { get; set; } =
+            string.Empty;
+    }
 }

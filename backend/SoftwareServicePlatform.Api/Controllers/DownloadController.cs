@@ -729,7 +729,24 @@ namespace SoftwareServicePlatform.Api.Controllers
                              * 下载开始时间
                              */
                             DownloadedAt =
-                                DateTime.UtcNow
+                                DateTime.UtcNow,
+                            DownloadType =
+    "ManualPackage",
+
+                            FromVersion =
+    string.Empty,
+
+                            ToVersion =
+    softwareVersion.Version,
+
+                            FileCount =
+    1,
+
+                            Status =
+    "Success",
+
+                            ErrorMessage =
+    string.Empty,
                         };
 
 

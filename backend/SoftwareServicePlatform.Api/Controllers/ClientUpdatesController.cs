@@ -483,6 +483,269 @@ namespace SoftwareServicePlatform.Api.Controllers
             );
         }
 
+        /// <summary>
+        /// 客户端开始执行一次自动更新。
+        ///
+        /// 一次自动更新只创建一条 DownloadRecord，
+        /// 不会因为下载多个 DLL 而产生多条记录。
+        /// </summary>
+        [HttpPost("report/start")]
+        public async Task<IActionResult>
+            StartUpdateReport(
+                ClientUpdateReportStartRequest request,
+                CancellationToken cancellationToken)
+        {
+            var resolved =
+                await ResolveCredentialAsync(
+                    softwareCode: null,
+                    cancellationToken
+                );
+
+            if (resolved == null)
+            {
+                return Unauthorized();
+            }
+
+            var (_, binding) =
+                resolved.Value;
+
+
+            /*
+             * 只允许两种客户端自动更新方式。
+             */
+            if (
+                request.DownloadType
+                    != "AutoIncremental"
+                &&
+                request.DownloadType
+                    != "AutoFullPackage"
+            )
+            {
+                return BadRequest(
+                    "DownloadType 无效"
+                );
+            }
+
+
+            if (
+                request.FileCount < 0
+                ||
+                request.FileSize < 0
+            )
+            {
+                return BadRequest(
+                    "文件数量或文件大小无效"
+                );
+            }
+
+
+            /*
+             * 必须确认目标版本确实发布给了当前客户。
+             */
+            var version =
+                await GetAuthorizedVersionAsync(
+                    request.VersionId,
+                    binding.CustomerId,
+                    binding.SoftwareId,
+                    cancellationToken
+                );
+
+            if (
+                version == null
+                ||
+                binding.Customer == null
+                ||
+                binding.Software == null
+            )
+            {
+                return Forbid();
+            }
+
+
+            var record =
+                new DownloadRecord
+                {
+                    /*
+                     * 自动更新不是某个网页登录用户执行的，
+                     * 所以 UserId 留空。
+                     */
+                    UserId =
+                        null,
+
+                    UserName =
+                        string.Empty,
+
+                    UserDisplayName =
+                        string.Empty,
+
+
+                    CustomerId =
+                        binding.CustomerId,
+
+                    CustomerName =
+                        binding.Customer.Name,
+
+
+                    SoftwareId =
+                        binding.SoftwareId,
+
+                    SoftwareName =
+                        binding.Software.Name,
+
+
+                    SoftwareVersionId =
+                        version.Id,
+
+                    Version =
+                        version.Version,
+
+
+                    FileName =
+                        request.DownloadType
+                            == "AutoIncremental"
+                            ? "自动增量更新"
+                            : (
+                                string.IsNullOrWhiteSpace(
+                                    version.PackageFileName)
+                                    ? "完整安装包"
+                                    : version.PackageFileName
+                            ),
+
+                    FileSize =
+                        request.FileSize,
+
+
+                    DownloadType =
+                        request.DownloadType,
+
+                    FromVersion =
+                        request.FromVersion?.Trim()
+                        ?? string.Empty,
+
+                    ToVersion =
+                        version.Version,
+
+                    FileCount =
+                        request.FileCount,
+
+                    Status =
+                        "Started",
+
+                    ErrorMessage =
+                        string.Empty,
+
+                    DownloadedAt =
+                        DateTime.UtcNow
+                };
+
+
+            _dbContext.DownloadRecords.Add(
+                record
+            );
+
+            await _dbContext.SaveChangesAsync(
+                cancellationToken
+            );
+
+
+            return Ok(
+                new ClientUpdateReportStartResponse
+                {
+                    RecordId =
+                        record.Id
+                }
+            );
+        }
+        /// <summary>
+        /// 客户端自动更新结束上报。
+        /// </summary>
+        [HttpPost("report/complete")]
+        public async Task<IActionResult>
+            CompleteUpdateReport(
+                ClientUpdateReportCompleteRequest request,
+                CancellationToken cancellationToken)
+        {
+            var resolved =
+                await ResolveCredentialAsync(
+                    softwareCode: null,
+                    cancellationToken
+                );
+
+            if (resolved == null)
+            {
+                return Unauthorized();
+            }
+
+            var (_, binding) =
+                resolved.Value;
+
+
+            var record =
+                await _dbContext
+                    .DownloadRecords
+                    .FirstOrDefaultAsync(
+                        x =>
+                            x.Id
+                                == request.RecordId
+                            &&
+                            x.CustomerId
+                                == binding.CustomerId
+                            &&
+                            x.SoftwareId
+                                == binding.SoftwareId
+                            &&
+                            (
+                                x.DownloadType
+                                    == "AutoIncremental"
+                                ||
+                                x.DownloadType
+                                    == "AutoFullPackage"
+                            ),
+                        cancellationToken
+                    );
+
+
+            if (record == null)
+            {
+                return NotFound(
+                    "自动更新记录不存在"
+                );
+            }
+
+
+            record.Status =
+                request.Success
+                    ? "Success"
+                    : "Failed";
+
+
+            /*
+             * 防止异常信息无限写入数据库。
+             */
+            var error =
+                request.ErrorMessage
+                ?? string.Empty;
+
+            if (error.Length > 2000)
+            {
+                error =
+                    error[..2000];
+            }
+
+
+            record.ErrorMessage =
+                request.Success
+                    ? string.Empty
+                    : error;
+
+
+            await _dbContext.SaveChangesAsync(
+                cancellationToken
+            );
+
+
+            return NoContent();
+        }
 
         /// <summary>
         /// 完整安装包兜底下载。
