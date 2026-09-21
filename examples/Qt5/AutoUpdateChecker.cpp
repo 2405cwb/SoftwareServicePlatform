@@ -1,6 +1,8 @@
 #include "AutoUpdateChecker.h"
 
 #include <QCoreApplication>
+#include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -9,24 +11,216 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QProcess>
+#include <QPushButton>
 #include <QUrl>
+#include <QtGlobal>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <shellapi.h>
+#endif
+
+namespace
+{
+    struct UpdaterConfig
+    {
+        QString serverUrl;
+        QString softwareCode;
+        QString updateToken;
+    };
+
+    bool loadUpdaterConfig(
+        const QString &updaterExePath,
+        UpdaterConfig &config,
+        QString &errorMessage)
+    {
+        const QFileInfo updaterInfo(
+            updaterExePath);
+
+        const QString configPath =
+            updaterInfo.absoluteDir().filePath(
+                QStringLiteral("updater.json"));
+
+        QFile file(configPath);
+
+        if (!file.open(QIODevice::ReadOnly))
+        {
+            errorMessage =
+                QStringLiteral("找不到或无法读取自动更新配置文件：\n")
+                + configPath;
+
+            return false;
+        }
+
+        QJsonParseError parseError;
+
+        const QJsonDocument document =
+            QJsonDocument::fromJson(
+                file.readAll(),
+                &parseError);
+
+        file.close();
+
+        if (parseError.error
+                != QJsonParseError::NoError
+            || !document.isObject())
+        {
+            errorMessage =
+                QStringLiteral("updater.json 格式无效：\n")
+                + parseError.errorString();
+
+            return false;
+        }
+
+        const QJsonObject object =
+            document.object();
+
+        config.serverUrl =
+            object.value(
+                QStringLiteral("serverUrl"))
+                .toString()
+                .trimmed();
+
+        config.softwareCode =
+            object.value(
+                QStringLiteral("softwareCode"))
+                .toString()
+                .trimmed();
+
+        config.updateToken =
+            object.value(
+                QStringLiteral("updateToken"))
+                .toString()
+                .trimmed();
+
+        if (config.serverUrl.isEmpty()
+            || config.softwareCode.isEmpty()
+            || config.updateToken.isEmpty())
+        {
+            errorMessage =
+                QStringLiteral(
+                    "updater.json 配置不完整，必须包含：\n"
+                    "serverUrl / softwareCode / updateToken");
+
+            return false;
+        }
+
+        const QUrl serverUrl(config.serverUrl);
+
+        if (!serverUrl.isValid()
+            || (serverUrl.scheme().compare(
+                    QStringLiteral("http"),
+                    Qt::CaseInsensitive) != 0
+                && serverUrl.scheme().compare(
+                    QStringLiteral("https"),
+                    Qt::CaseInsensitive) != 0))
+        {
+            errorMessage =
+                QStringLiteral("updater.json 的 serverUrl 无效：\n")
+                + config.serverUrl;
+
+            return false;
+        }
+
+        return true;
+    }
+
+    bool startUpdaterDetached(
+        const QString &updaterExePath,
+        const QString &appRootPath)
+    {
+        const QString pid =
+            QString::number(
+                QCoreApplication::applicationPid());
+
+#ifdef Q_OS_WIN
+        /*
+         * Updater 如果在自身 manifest 中声明 requireAdministrator，
+         * Windows 需要通过 Shell 启动才能正常触发 UAC。
+         *
+         * 这里使用普通 "open"，不在业务代码里硬编码 runas；
+         * 是否需要管理员权限由 Updater 自己的 manifest 决定。
+         */
+        QString escapedAppRoot =
+            appRootPath;
+
+        escapedAppRoot.replace(
+            QStringLiteral("\""),
+            QStringLiteral("\\\""));
+
+        const QString parameters =
+            QStringLiteral(
+                "--app-root \"%1\" --wait-pid %2")
+                .arg(escapedAppRoot)
+                .arg(pid);
+
+        const QString workingDirectory =
+            QFileInfo(updaterExePath)
+                .absolutePath();
+
+        const HINSTANCE result =
+            ShellExecuteW(
+                nullptr,
+                L"open",
+                reinterpret_cast<LPCWSTR>(
+                    updaterExePath.utf16()),
+                reinterpret_cast<LPCWSTR>(
+                    parameters.utf16()),
+                reinterpret_cast<LPCWSTR>(
+                    workingDirectory.utf16()),
+                SW_SHOWNORMAL);
+
+        return reinterpret_cast<INT_PTR>(result)
+            > 32;
+#else
+        QStringList arguments;
+
+        arguments
+            << QStringLiteral("--app-root")
+            << appRootPath
+            << QStringLiteral("--wait-pid")
+            << pid;
+
+        return QProcess::startDetached(
+            updaterExePath,
+            arguments,
+            QFileInfo(updaterExePath)
+                .absolutePath());
+#endif
+    }
+}
 
 AutoUpdateChecker::AutoUpdateChecker(QObject *parent)
     : QObject(parent)
 {
-    m_network = new QNetworkAccessManager(this);
+    m_network =
+        new QNetworkAccessManager(this);
 }
 
 void AutoUpdateChecker::checkForUpdates(
     QWidget *parentWidget,
-    const QString &serverUrl,
-    const QString &softwareCode,
-    const QString &updateToken,
     const QString &currentVersion,
     const QString &updaterExePath,
     const QString &appRootPath)
 {
-    QString baseUrl = serverUrl.trimmed();
+    UpdaterConfig config;
+    QString configError;
+
+    if (!loadUpdaterConfig(
+            updaterExePath,
+            config,
+            configError))
+    {
+        QMessageBox::warning(
+            parentWidget,
+            QStringLiteral("自动更新"),
+            configError);
+
+        return;
+    }
+
+    QString baseUrl =
+        config.serverUrl.trimmed();
 
     while (baseUrl.endsWith('/'))
     {
@@ -34,30 +228,28 @@ void AutoUpdateChecker::checkForUpdates(
     }
 
     const QUrl url(
-        baseUrl + "/api/client-updates/check");
+        baseUrl
+        + QStringLiteral(
+            "/api/client-updates/check"));
 
     QNetworkRequest request(url);
 
     request.setHeader(
         QNetworkRequest::ContentTypeHeader,
-        "application/json");
+        QStringLiteral("application/json"));
 
-    /*
-     * UpdateToken 不放 URL，
-     * 避免出现在 QueryString / 普通访问日志。
-     */
     request.setRawHeader(
         "X-Update-Token",
-        updateToken.toUtf8());
+        config.updateToken.toUtf8());
 
     QJsonObject body;
 
     body.insert(
-        "softwareCode",
-        softwareCode);
+        QStringLiteral("softwareCode"),
+        config.softwareCode);
 
     body.insert(
-        "currentVersion",
+        QStringLiteral("currentVersion"),
         currentVersion);
 
     QNetworkReply *reply =
@@ -81,10 +273,7 @@ void AutoUpdateChecker::checkForUpdates(
             reply->deleteLater();
 
             /*
-             * 启动检查失败不应该阻止软件正常启动。
-             *
-             * 这里示例只安静返回；
-             * 正式工程可以记录日志。
+             * 启动时检查失败不阻止业务软件正常启动。
              */
             if (error != QNetworkReply::NoError)
             {
@@ -99,7 +288,7 @@ void AutoUpdateChecker::checkForUpdates(
                     &parseError);
 
             if (parseError.error
-                != QJsonParseError::NoError
+                    != QJsonParseError::NoError
                 || !document.isObject())
             {
                 return;
@@ -109,7 +298,8 @@ void AutoUpdateChecker::checkForUpdates(
                 document.object();
 
             const bool hasUpdate =
-                result.value("hasUpdate")
+                result.value(
+                    QStringLiteral("hasUpdate"))
                     .toBool(false);
 
             if (!hasUpdate)
@@ -118,15 +308,18 @@ void AutoUpdateChecker::checkForUpdates(
             }
 
             const QString latestVersion =
-                result.value("latestVersion")
+                result.value(
+                    QStringLiteral("latestVersion"))
                     .toString();
 
             const QString releaseNotes =
-                result.value("releaseNotes")
+                result.value(
+                    QStringLiteral("releaseNotes"))
                     .toString();
 
             const bool forceUpdate =
-                result.value("forceUpdate")
+                result.value(
+                    QStringLiteral("forceUpdate"))
                     .toBool(false);
 
             QString message =
@@ -173,16 +366,6 @@ void AutoUpdateChecker::checkForUpdates(
             if (box.clickedButton()
                 != updateButton)
             {
-                /*
-                 * 强制升级不能通过关闭弹窗绕过。
-                 *
-                 * 普通升级：
-                 * 用户选择“稍后”即可继续使用。
-                 *
-                 * 强制升级：
-                 * 用户没有点击“立即更新”，
-                 * 则直接退出主程序。
-                 */
                 if (forceUpdate)
                 {
                     QCoreApplication::quit();
@@ -209,26 +392,10 @@ void AutoUpdateChecker::checkForUpdates(
                 return;
             }
 
-            QStringList arguments;
-
-            /*
-             * Updater 默认从自己目录读取 updater.json。
-             */
-            arguments
-                << "--app-root"
-                << appRootPath
-                << "--wait-pid"
-                << QString::number(
-                       QCoreApplication
-                           ::applicationPid());
-
             const bool started =
-                QProcess::startDetached(
+                startUpdaterDetached(
                     updaterExePath,
-                    arguments,
-                    QFileInfo(
-                        updaterExePath)
-                        .absolutePath());
+                    appRootPath);
 
             if (!started)
             {
@@ -236,7 +403,8 @@ void AutoUpdateChecker::checkForUpdates(
                     parentWidget,
                     QStringLiteral("更新失败"),
                     QStringLiteral(
-                        "无法启动自动更新程序。"));
+                        "无法启动自动更新程序。\n"
+                        "如果 Windows 弹出了管理员权限窗口，请确认选择“是”。"));
 
                 if (forceUpdate)
                 {
@@ -248,7 +416,6 @@ void AutoUpdateChecker::checkForUpdates(
 
             /*
              * Updater 已经启动。
-             *
              * 正常退出，让 Updater 可以替换 EXE / DLL。
              */
             QCoreApplication::quit();

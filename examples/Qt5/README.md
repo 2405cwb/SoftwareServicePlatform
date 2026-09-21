@@ -1,5 +1,9 @@
 # Qt 5.8 接入
 
+本示例已经改为：**业务源码不再保存 `serverUrl / softwareCode / updateToken`**，统一从 `updater/updater.json` 读取。
+
+## 1. 加入文件
+
 把：
 
 ```text
@@ -13,37 +17,79 @@ AutoUpdateChecker.cpp
 
 ```pro
 QT += network
+
+win32:LIBS += -lshell32
 ```
 
-应用启动后调用，例如：
+`shell32` 用于 Windows 下通过 Shell 启动 Updater，使 Updater 自己的管理员权限 manifest 可以正常触发 UAC。
 
-```cpp
-QCoreApplication::setApplicationVersion("1.2.0");
+## 2. 安装目录约定
 
-AutoUpdateChecker *checker =
-    new AutoUpdateChecker(this);
-
-checker->checkForUpdates(
-    this,
-    "https://service.company.com",
-    "ROAD_PROCESS",
-    "ssp_upd_xxxxxxxxx",
-    QCoreApplication::applicationVersion(),
-    QCoreApplication::applicationDirPath()
-        + "/updater/SoftwareServicePlatform.Updater.exe",
-    QCoreApplication::applicationDirPath());
+```text
+AppRoot/
+├─ YourQtApplication.exe
+├─ version.txt
+└─ updater/
+   ├─ SoftwareServicePlatform.Updater.exe
+   └─ updater.json
 ```
 
-推荐不要把真实 Token 写进 Git 仓库源码。
-
-更适合的方式是安装/交付时写入：
+把本目录的 `updater.json.example` 复制为：
 
 ```text
 updater/updater.json
 ```
 
-主程序检查更新时，可以从自己的客户配置或 `updater.json` 读取
-`serverUrl / softwareCode / updateToken`，不要把真实 Token 编译进公共源码。
+填写当前客户对应的 `serverUrl / softwareCode / updateToken`。
 
-当前示例为了展示最小接入方式，直接把这三个值作为参数传入
-`checkForUpdates()`；实际项目中建议由配置文件加载。
+> 不要把真实 UpdateToken 写进 C++ 源码，也不要提交到 Git 仓库。
+
+## 3. 读取 version.txt
+
+推荐统一读取安装目录的 `version.txt`：
+
+```cpp
+QString readCurrentVersion()
+{
+    QFile file(
+        QCoreApplication::applicationDirPath()
+        + "/version.txt");
+
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+    {
+        return QStringLiteral("0.0.0");
+    }
+
+    return QString::fromUtf8(file.readAll()).trimmed();
+}
+```
+
+## 4. 调用
+
+```cpp
+AutoUpdateChecker *checker =
+    new AutoUpdateChecker(this);
+
+checker->checkForUpdates(
+    this,
+    readCurrentVersion(),
+    QCoreApplication::applicationDirPath()
+        + "/updater/SoftwareServicePlatform.Updater.exe",
+    QCoreApplication::applicationDirPath());
+```
+
+调用处已经不再出现：
+
+```text
+serverUrl
+softwareCode
+updateToken
+```
+
+这些全部由 `AutoUpdateChecker` 从同一个 `updater.json` 读取。
+
+## 5. UAC
+
+Updater 自己应在 manifest 中声明管理员权限。
+
+Qt 的 `QProcess::startDetached()` 在 Windows 上不适合直接启动一个要求提升权限的 EXE，因此示例在 Windows 下改用 `ShellExecuteW(..., "open", ...)`。代码本身不写 `runas`，是否需要管理员权限由 Updater 自己的 manifest 决定。

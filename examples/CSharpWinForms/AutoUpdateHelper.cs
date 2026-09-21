@@ -1,6 +1,6 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
@@ -13,35 +13,43 @@ namespace YourApplication
     /// .NET Framework 4.8 WinForms 自动更新接入示例。
     ///
     /// 需要项目引用：
-    ///
     /// System.Net.Http
     /// System.Web.Extensions
     ///
+    /// 重要约定：
+    /// serverUrl / softwareCode / updateToken 不再写进业务源码，
+    /// 全部从 updater/updater.json 读取。
+    ///
     /// 主程序只负责：
-    /// 1. 检查版本；
-    /// 2. 弹窗；
+    /// 1. 读取 updater.json 并检查版本；
+    /// 2. 提示用户；
     /// 3. 启动独立 Updater.exe；
     /// 4. 正常退出。
     ///
-    /// 文件下载 / SHA256 / 备份 / 回滚由 Updater 完成。
+    /// 下载 / SHA256 / 备份 / 回滚 / UAC / 重启由 Updater 负责。
     /// </summary>
     public static class AutoUpdateHelper
     {
         private static readonly JavaScriptSerializer Json =
             new JavaScriptSerializer();
 
-
         public static async Task CheckOnStartupAsync(
             IWin32Window owner,
-            string serverUrl,
-            string softwareCode,
-            string updateToken,
             string currentVersion,
             string updaterExePath,
             string appRootPath)
         {
             try
             {
+                var config = LoadUpdaterConfig(
+                    owner,
+                    updaterExePath);
+
+                if (config == null)
+                {
+                    return;
+                }
+
                 using (var client = new HttpClient())
                 {
                     client.Timeout =
@@ -49,14 +57,14 @@ namespace YourApplication
 
                     client.DefaultRequestHeaders.Add(
                         "X-Update-Token",
-                        updateToken);
+                        config.updateToken);
 
                     var body =
                         Json.Serialize(
                             new
                             {
                                 softwareCode =
-                                    softwareCode,
+                                    config.softwareCode,
 
                                 currentVersion =
                                     currentVersion
@@ -64,7 +72,7 @@ namespace YourApplication
 
                     var response =
                         await client.PostAsync(
-                            serverUrl.TrimEnd('/')
+                            config.serverUrl.TrimEnd('/')
                             + "/api/client-updates/check",
                             new StringContent(
                                 body,
@@ -72,8 +80,8 @@ namespace YourApplication
                                 "application/json"));
 
                     /*
-                     * 更新检查失败不能导致业务软件打不开。
-                     * 正式工程可以写日志。
+                     * 启动时检查失败不阻止业务软件正常使用。
+                     * 401/403 等详细原因由 updater.log / 服务端日志排查。
                      */
                     if (!response.IsSuccessStatusCode)
                     {
@@ -128,12 +136,6 @@ namespace YourApplication
 
                     if (!accepted)
                     {
-                        /*
-                         * 强制升级时，如果用户拒绝，
-                         * 业务上通常应该退出软件。
-                         *
-                         * 你可以根据项目要求决定。
-                         */
                         if (result.forceUpdate)
                         {
                             Application.Exit();
@@ -142,7 +144,7 @@ namespace YourApplication
                         return;
                     }
 
-                    if (!System.IO.File.Exists(
+                    if (!File.Exists(
                             updaterExePath))
                     {
                         MessageBox.Show(
@@ -172,6 +174,13 @@ namespace YourApplication
 
                     try
                     {
+                        /*
+                         * UseShellExecute=true 很重要：
+                         * Updater 如果通过自身 manifest 声明需要管理员权限，
+                         * Windows Shell 才能正常触发 UAC。
+                         *
+                         * 业务程序不保存管理员逻辑，也不保存 Token。
+                         */
                         Process.Start(
                             new ProcessStartInfo
                             {
@@ -182,19 +191,19 @@ namespace YourApplication
                                     arguments,
 
                                 WorkingDirectory =
-                                    System.IO.Path
-                                        .GetDirectoryName(
-                                            updaterExePath),
+                                    Path.GetDirectoryName(
+                                        updaterExePath),
 
                                 UseShellExecute =
                                     true
                             });
                     }
-                    catch
+                    catch (Exception ex)
                     {
                         MessageBox.Show(
                             owner,
-                            "无法启动自动更新程序。",
+                            "无法启动自动更新程序。\r\n\r\n"
+                            + ex.Message,
                             "更新失败",
                             MessageBoxButtons.OK,
                             MessageBoxIcon.Warning);
@@ -208,8 +217,8 @@ namespace YourApplication
                     }
 
                     /*
-                     * 正常退出主程序，
-                     * 避免 EXE / DLL 被 Windows 锁定。
+                     * Updater 已成功启动后退出业务程序，
+                     * 避免 EXE / DLL 被占用。
                      */
                     Application.Exit();
                 }
@@ -218,14 +227,107 @@ namespace YourApplication
             {
                 /*
                  * 自动更新属于辅助能力。
-                 * 非强制情况下更新服务器临时不可用，
-                 * 不应该阻止软件正常启动。
-                 *
-                 * 正式工程建议在这里记录日志。
+                 * 检查服务器临时不可用时，不阻止业务程序启动。
                  */
             }
         }
 
+        private static UpdaterConfig LoadUpdaterConfig(
+            IWin32Window owner,
+            string updaterExePath)
+        {
+            var updaterDirectory =
+                Path.GetDirectoryName(
+                    updaterExePath);
+
+            if (string.IsNullOrWhiteSpace(
+                    updaterDirectory))
+            {
+                return null;
+            }
+
+            var configPath =
+                Path.Combine(
+                    updaterDirectory,
+                    "updater.json");
+
+            if (!File.Exists(configPath))
+            {
+                MessageBox.Show(
+                    owner,
+                    "找不到自动更新配置文件：\r\n"
+                    + configPath,
+                    "自动更新",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+
+                return null;
+            }
+
+            UpdaterConfig config;
+
+            try
+            {
+                var configJson =
+                    File.ReadAllText(
+                        configPath,
+                        Encoding.UTF8);
+
+                config =
+                    Json.Deserialize<UpdaterConfig>(
+                        configJson);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    owner,
+                    "updater.json 读取失败：\r\n"
+                    + ex.Message,
+                    "自动更新",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+
+                return null;
+            }
+
+            if (config == null
+                || string.IsNullOrWhiteSpace(config.serverUrl)
+                || string.IsNullOrWhiteSpace(config.softwareCode)
+                || string.IsNullOrWhiteSpace(config.updateToken))
+            {
+                MessageBox.Show(
+                    owner,
+                    "updater.json 配置不完整，必须包含：\r\n"
+                    + "serverUrl / softwareCode / updateToken",
+                    "自动更新",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+
+                return null;
+            }
+
+            Uri serverUri;
+
+            if (!Uri.TryCreate(
+                    config.serverUrl,
+                    UriKind.Absolute,
+                    out serverUri)
+                || (serverUri.Scheme != Uri.UriSchemeHttp
+                    && serverUri.Scheme != Uri.UriSchemeHttps))
+            {
+                MessageBox.Show(
+                    owner,
+                    "updater.json 的 serverUrl 无效：\r\n"
+                    + config.serverUrl,
+                    "自动更新",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+
+                return null;
+            }
+
+            return config;
+        }
 
         private static string Quote(
             string value)
@@ -237,6 +339,14 @@ namespace YourApplication
                 + "\"";
         }
 
+        private sealed class UpdaterConfig
+        {
+            public string serverUrl { get; set; }
+
+            public string softwareCode { get; set; }
+
+            public string updateToken { get; set; }
+        }
 
         private sealed class UpdateCheckResult
         {

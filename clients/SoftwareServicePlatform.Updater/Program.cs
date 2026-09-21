@@ -1,7 +1,8 @@
 using System.Diagnostics;
 using System.Text.Json;
 using SoftwareServicePlatform.Updater;
-
+using System.Runtime.InteropServices;
+using System.Text;
 internal static class Program
 {
     private static readonly JsonSerializerOptions
@@ -181,11 +182,13 @@ internal static class Program
         }
         catch (Exception ex)
         {
+            WriteFailureLog(ex);
+
             Console.Error.WriteLine(
                 "自动更新失败："
-                +
-                ex
-            );
+                + ex);
+
+            ShowErrorMessage(ex);
 
             return 1;
         }
@@ -301,4 +304,70 @@ internal static class Program
                 "version.txt";
         }
     }
+
+
+    private static void WriteFailureLog(
+    Exception ex)
+    {
+        try
+        {
+            var logPath =
+                Path.Combine(
+                    AppContext.BaseDirectory,
+                    "updater.log");
+
+            var message =
+                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] "
+                + "自动更新失败："
+                + ex
+                + Environment.NewLine;
+
+            File.AppendAllText(
+                logPath,
+                message,
+                Encoding.UTF8);
+        }
+        catch
+        {
+            // 日志写入失败不能覆盖原始错误。
+        }
+    }
+
+
+    private static void ShowErrorMessage(
+        Exception ex)
+    {
+        try
+        {
+            var message =
+                "自动更新失败。\r\n\r\n"
+                + ex.Message
+                + "\r\n\r\n"
+                + "详细信息已写入：\r\n"
+                + Path.Combine(
+                    AppContext.BaseDirectory,
+                    "updater.log");
+
+            MessageBoxW(
+                IntPtr.Zero,
+                message,
+                "软件自动更新失败",
+                0x00000010);
+        }
+        catch
+        {
+            // 弹窗失败时仍然保留控制台和日志。
+        }
+    }
+
+
+    [DllImport(
+        "user32.dll",
+        CharSet = CharSet.Unicode,
+        SetLastError = true)]
+    private static extern int MessageBoxW(
+        IntPtr hWnd,
+        string text,
+        string caption,
+        uint type);
 }
