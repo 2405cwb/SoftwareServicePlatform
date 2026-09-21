@@ -1138,36 +1138,7 @@ function VersionPage() {
     }
   }
 
-  async function publishVersion(softwareVersion: SoftwareVersion) {
-    const confirmed = window.confirm(
-      `确定发布版本 ${softwareVersion.version} 吗？发布后将不能继续编辑。`,
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
-    try {
-      const response = await apiFetch(
-        `/api/softwareversions/${softwareVersion.id}/publish`,
-        {
-          method: "POST",
-        },
-      );
-
-      if (!response.ok) {
-        const errorText = await response.text();
-
-        throw new Error(errorText || `发布失败：${response.status}`);
-      }
-
-      await loadVersions();
-    } catch (error) {
-      console.error("发布版本失败：", error);
-
-      alert("发布版本失败：" + String(error));
-    }
-  }
+   
   async function deprecateVersion(softwareVersion: SoftwareVersion) {
     const confirmed = window.confirm(
       `确定停用版本 ${softwareVersion.version} 吗？停用后客户将不能继续下载。`,

@@ -1,5 +1,4 @@
 ﻿using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SoftwareServicePlatform.Api.Data;
@@ -7,7 +6,8 @@ using SoftwareServicePlatform.Api.Models;
 using SoftwareServicePlatform.Api.Services;
 using SoftwareServicePlatform.Api.Services.NotificationPolicies;
 using System.Security.Claims;
-using System.Security.Cryptography; 
+using System.Security.Cryptography;
+using SoftwareServicePlatform.Api.Services.ClientUpdates;
 namespace SoftwareServicePlatform.Api.Controllers
 {
     /// <summary>
@@ -939,35 +939,85 @@ public async Task<IActionResult> DownloadPackage(int id)
 
 
             /*
-             * 正式发布前必须已经上传安装包。
-             */
-            if (string.IsNullOrWhiteSpace(
-                    version.PackageRelativePath))
-            {
-                return BadRequest(
-                    "请先上传安装包再发布版本"
+  * ==========================================
+  * 发布文件检查
+  * ==========================================
+  *
+  * 一个版本至少需要具备以下一种发布能力：
+  *
+  * 1. 完整安装包
+  * 2. 客户端自动更新包
+  *
+  * 因此不再强制要求每个版本必须上传完整安装包。
+  */
+
+            var hasFullPackage =
+                !string.IsNullOrWhiteSpace(
+                    version.PackageRelativePath
                 );
+
+            if (hasFullPackage)
+            {
+                var packageFullPath =
+                    Path.Combine(
+                        _environment.ContentRootPath,
+                        version.PackageRelativePath!
+                            .Replace(
+                                '/',
+                                Path.DirectorySeparatorChar
+                            )
+                    );
+
+                /*
+                 * 数据库记录说有安装包，
+                 * 但磁盘文件已经不存在，
+                 * 这种情况仍然不允许发布。
+                 */
+                if (!System.IO.File.Exists(
+                        packageFullPath))
+                {
+                    return BadRequest(
+                        "安装包文件不存在，请重新上传"
+                    );
+                }
             }
 
 
             /*
-             * 再检查硬盘上的文件是否真实存在。
-             *
-             * 防止数据库里有路径，
-             * 但实际安装包被人为删除。
+             * 检查自动更新包。
              */
-            var packageFullPath =
-                Path.Combine(
-                    _environment.ContentRootPath,
-                    version.PackageRelativePath.Replace(
-                        '/',
-                        Path.DirectorySeparatorChar)
+            var updatePackageStore =
+                new ClientUpdatePackageStore(
+                    _environment.ContentRootPath
                 );
 
-            if (!System.IO.File.Exists(packageFullPath))
+            var updateManifest =
+                updatePackageStore.LoadManifest(
+                    version.Id
+                );
+
+            var hasUpdatePackage =
+                updateManifest != null
+                &&
+                updateManifest.SoftwareId
+                    == version.SoftwareId
+                &&
+                string.Equals(
+                    updateManifest.Version,
+                    version.Version,
+                    StringComparison.OrdinalIgnoreCase
+                );
+
+
+            /*
+             * 两种发布文件都没有，
+             * 才真正不允许发布。
+             */
+            if (!hasFullPackage
+                && !hasUpdatePackage)
             {
                 return BadRequest(
-                    "安装包文件不存在，请重新上传"
+                    "请先上传完整安装包或自动更新包再发布版本"
                 );
             }
             /*
@@ -1047,7 +1097,7 @@ request.PublishToAll)
 
             version.PublishedAt = now;
 
-            version.AllowDownload = true;
+            version.AllowDownload = hasFullPackage;
 
             version.UpdatedAt = now; 
 

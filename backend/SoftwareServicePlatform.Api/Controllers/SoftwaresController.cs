@@ -140,6 +140,25 @@ namespace SoftwareServicePlatform.Api.Controllers
                 return NotFound("软件不存在");
             }
 
+            /*
+             * 软件一旦产生过工单，就属于历史业务数据。
+             *
+             * 不能直接物理删除，否则工单将失去所属软件。
+             * 数据库本身也通过 DeleteBehavior.Restrict
+             * 阻止这种删除。
+             */
+            var ticketCount =
+                await _dbContext.Tickets
+                    .CountAsync(x => x.SoftwareId == id);
+
+            if (ticketCount > 0)
+            {
+                return Conflict(
+                    $"该软件已关联 {ticketCount} 个历史工单，不能删除。"
+                    + "如该软件已停止使用，请将软件状态修改为“停用”。"
+                );
+            }
+
             _dbContext.Softwares.Remove(software);
 
             await _dbContext.SaveChangesAsync();

@@ -52,6 +52,11 @@ Thumbs.db
 backend/SoftwareServicePlatform.Api/storage/software-packages/
 
 # =========================
+# Client auto-update generated packages
+# =========================
+backend/SoftwareServicePlatform.Api/storage/client-updates/
+
+# =========================
 # Frontend build output
 # =========================
 forntend/dist/

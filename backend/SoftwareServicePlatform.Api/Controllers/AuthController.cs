@@ -7,8 +7,7 @@ using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-using Microsoft.AspNetCore.Authorization;
-using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization; 
 using SoftwareServicePlatform.Api.Dtos.Auth;
 
 namespace SoftwareServicePlatform.Api.Controllers

@@ -1,0 +1,10 @@
+{
+  "serverUrl": "http://localhost:5108",
+  "softwareCode": "ROAD_PROCESS",
+  "updateToken": "ssp_upd_请从平台管理员页面生成",
+  "versionFile": "version.txt",
+  "mainExecutable": "YourApplication.exe",
+  "fallbackToFullInstaller": false,
+  "restartAfterUpdate": true,
+  "waitForProcessSeconds": 60
+}

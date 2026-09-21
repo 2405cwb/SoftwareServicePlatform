@@ -1,0 +1,23 @@
+@host = http://localhost:5108
+@softwareCode = ROAD_PROCESS
+@currentVersion = 1.0.0
+@updateToken = ssp_upd_请替换为管理员生成的真实Token
+@versionId = 1
+
+### 客户端检查更新
+POST {{host}}/api/client-updates/check
+Content-Type: application/json
+X-Update-Token: {{updateToken}}
+
+{
+  "softwareCode": "{{softwareCode}}",
+  "currentVersion": "{{currentVersion}}"
+}
+
+### 下载增量文件（path 必须存在于 manifest）
+GET {{host}}/api/client-updates/versions/{{versionId}}/files?path=RoadProcess.exe
+X-Update-Token: {{updateToken}}
+
+### 完整安装包兜底
+GET {{host}}/api/client-updates/versions/{{versionId}}/full-package
+X-Update-Token: {{updateToken}}
