@@ -247,6 +247,31 @@ builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
+
+/*
+ * ==========================================
+ * 自动执行数据库迁移
+ * ==========================================
+ *
+ * Docker / 新服务器第一次启动时，
+ * PostgreSQL 数据库可能是完全空的。
+ *
+ * 这里自动执行项目中尚未应用的 EF Core Migration。
+ *
+ * 已经执行过的 Migration 不会重复执行。
+ *
+ * 当前系统是单实例部署，
+ * 使用这种方式可以简化部署流程。
+ */
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext =
+        scope.ServiceProvider
+            .GetRequiredService<AppDbContext>();
+
+    await dbContext.Database.MigrateAsync();
+}
+
 /*
  * ==========================================
  * 初始化通知策略
