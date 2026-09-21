@@ -1,0 +1,405 @@
+# ============================================================
+# SoftwareServicePlatform Docker Compose
+# ============================================================
+#
+# 当前管理三个服务：
+#
+#   postgres
+#     PostgreSQL 数据库
+#
+#   api
+#     ASP.NET Core Web API 后端
+#
+#   frontend
+#     React + Nginx 前端
+#
+# MongoDB 暂时只用于学习，
+# 当前 SoftwareServicePlatform 正式业务数据库仍使用 PostgreSQL。
+#
+# ============================================================
+
+
+services:
+
+  # ==========================================================
+  # 1. PostgreSQL 数据库
+  # ==========================================================
+  postgres:
+
+    # PostgreSQL 官方镜像
+    image: postgres:17
+
+    # Docker Desktop 中显示的容器名称
+    container_name: software-service-postgres
+
+    # 除非人为 stop，
+    # Docker / 系统重启后自动恢复运行
+    restart: unless-stopped
+
+
+    # ----------------------------------------------------------
+    # PostgreSQL 初始化配置
+    # ----------------------------------------------------------
+    #
+    # ${XXX}
+    #
+    # 表示从项目根目录的 .env 文件读取。
+    #
+    # 注意：
+    #
+    # POSTGRES_USER
+    # POSTGRES_PASSWORD
+    # POSTGRES_DB
+    #
+    # 主要在数据库 Volume 第一次初始化时生效。
+    #
+    environment:
+
+      # PostgreSQL 用户名
+      POSTGRES_USER: ${POSTGRES_USER}
+
+      # PostgreSQL 密码
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+      # PostgreSQL 数据库名称
+      POSTGRES_DB: ${POSTGRES_DB}
+
+
+    # ----------------------------------------------------------
+    # PostgreSQL 端口
+    # ----------------------------------------------------------
+    #
+    # Windows：
+    #
+    # localhost:5433
+    #
+    #       ↓
+    #
+    # PostgreSQL Container：
+    #
+    # 5432
+    #
+    # 这里使用 Windows 的 5433，
+    # 是为了避免和你电脑原来的 PostgreSQL 5432 冲突。
+    #
+    ports:
+      - "127.0.0.1:5433:5432"
+
+
+    # ----------------------------------------------------------
+    # PostgreSQL 数据持久化
+    # ----------------------------------------------------------
+    #
+    # PostgreSQL 数据保存在：
+    #
+    # postgres-data
+    #
+    # Docker Volume 中。
+    #
+    # 即使删除 PostgreSQL Container，
+    # 数据默认也不会删除。
+    #
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+
+    # ----------------------------------------------------------
+    # PostgreSQL 健康检查
+    # ----------------------------------------------------------
+    #
+    # Container 显示 Running，
+    # 不代表 PostgreSQL 已经真正可以连接。
+    #
+    # pg_isready 用来检查数据库是否已经准备完成。
+    #
+    healthcheck:
+
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"
+        ]
+
+      # 每 5 秒检查一次
+      interval: 5s
+
+      # 每次最多等待 5 秒
+      timeout: 5s
+
+      # 连续失败 10 次以后才判定 unhealthy
+      retries: 10
+
+
+
+  # ==========================================================
+  # 2. ASP.NET Core Web API
+  # ==========================================================
+  api:
+
+    # ----------------------------------------------------------
+    # 构建后端 Docker Image
+    # ----------------------------------------------------------
+    #
+    # compose.yaml 位于项目根目录：
+    #
+    # SoftwareServicePlatform/
+    #
+    # 后端 Dockerfile 位于：
+    #
+    # backend/SoftwareServicePlatform.Api/Dockerfile
+    #
+    build:
+
+      # Docker build 上下文
+      context: ./backend/SoftwareServicePlatform.Api
+
+      # 使用的 Dockerfile
+      dockerfile: Dockerfile
+
+
+    # 构建完成后的镜像名称
+    image: software-service-api:dev
+
+    # API 容器名称
+    container_name: software-service-api
+
+    # 除非人为 stop，否则自动恢复
+    restart: unless-stopped
+
+
+    # ----------------------------------------------------------
+    # API 依赖 PostgreSQL
+    # ----------------------------------------------------------
+    #
+    # PostgreSQL 必须真正达到 healthy 状态以后，
+    # API 才开始启动。
+    #
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+
+    # ----------------------------------------------------------
+    # ASP.NET Core 环境变量
+    # ----------------------------------------------------------
+    environment:
+
+      # ========================================================
+      # ASP.NET Core 基础配置
+      # ========================================================
+
+      # 当前 Docker 环境使用 Production
+      ASPNETCORE_ENVIRONMENT: Production
+
+      # ASP.NET Core 在 Container 内部监听 8080
+      ASPNETCORE_URLS: http://+:8080
+
+
+      # ========================================================
+      # PostgreSQL
+      # ========================================================
+      #
+      # 特别注意：
+      #
+      # Docker Container 之间通信，
+      # 数据库地址不是 localhost。
+      #
+      # postgres
+      #
+      # 就是上面的 Compose Service 名称。
+      #
+      # Docker 会自动通过内部 DNS：
+      #
+      # postgres
+      #
+      # 找到 PostgreSQL Container。
+      #
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+
+
+      # ========================================================
+      # JWT
+      # ========================================================
+
+      # Token 签发者
+      Jwt__Issuer: SoftwareServicePlatform
+
+      # Token 接收者
+      Jwt__Audience: SoftwareServicePlatform.Client
+
+      # JWT 签名密钥
+      #
+      # 从 .env 中读取
+      Jwt__Key: ${JWT_KEY}
+
+      # JWT 有效时间，单位：分钟
+      Jwt__ExpireMinutes: 120
+
+
+      # ========================================================
+      # 首次管理员账号初始化
+      # ========================================================
+      #
+      # 这些配置只给 ASP.NET Core API 使用，
+      # 所以必须写在 api.environment 下。
+      #
+      # 双下划线：
+      #
+      # BootstrapAdmin__Enabled
+      #
+      # 在 ASP.NET Core 中相当于：
+      #
+      # BootstrapAdmin:Enabled
+      #
+      BootstrapAdmin__Enabled: ${BOOTSTRAP_ADMIN_ENABLED}
+
+      BootstrapAdmin__Username: ${BOOTSTRAP_ADMIN_USERNAME}
+
+      BootstrapAdmin__Password: ${BOOTSTRAP_ADMIN_PASSWORD}
+
+      BootstrapAdmin__DisplayName: ${BOOTSTRAP_ADMIN_DISPLAY_NAME}
+
+
+    # ----------------------------------------------------------
+    # API 端口
+    # ----------------------------------------------------------
+    #
+    # Windows：
+    #
+    # http://localhost:5108
+    #
+    #       ↓
+    #
+    # API Container：
+    #
+    # 8080
+    #
+    ports:
+      - "127.0.0.1:5108:8080"
+
+
+    # ----------------------------------------------------------
+    # 软件文件持久化
+    # ----------------------------------------------------------
+    #
+    # 包括以后可能保存的：
+    #
+    # 软件安装包
+    # 自动更新 ZIP
+    # 版本附件
+    # 工单附件
+    #
+    # Container：
+    #
+    # /app/storage
+    #
+    #       ↓
+    #
+    # Windows：
+    #
+    # SoftwareServicePlatform/docker-data/storage
+    #
+    # API Container 删除或者重新构建，
+    # 文件仍然保存在 Windows 硬盘上。
+    #
+    volumes:
+      - ./docker-data/storage:/app/storage
+
+
+
+  # ==========================================================
+  # 3. React + Nginx 前端
+  # ==========================================================
+  frontend:
+
+    # ----------------------------------------------------------
+    # 构建前端 Docker Image
+    # ----------------------------------------------------------
+    #
+    # 注意：
+    #
+    # 当前你的目录本身就叫：
+    #
+    # forntend
+    #
+    # 虽然单词拼写是 frontend，
+    # 但这里必须按照实际文件夹名称写。
+    #
+    build:
+
+      # React 项目目录
+      context: ./forntend
+
+      # 前端 Dockerfile
+      dockerfile: Dockerfile
+
+
+    # 前端镜像名称
+    image: software-service-frontend:dev
+
+    # 前端 Container 名称
+    container_name: software-service-frontend
+
+    # 除非人为停止，否则自动恢复
+    restart: unless-stopped
+
+
+    # ----------------------------------------------------------
+    # 前端依赖 API
+    # ----------------------------------------------------------
+    #
+    # Nginx 会把：
+    #
+    # /api
+    # /hubs
+    #
+    # 转发给：
+    #
+    # api:8080
+    #
+    depends_on:
+      - api
+
+
+    # ----------------------------------------------------------
+    # 前端访问端口
+    # ----------------------------------------------------------
+    #
+    # 浏览器：
+    #
+    # http://localhost:8080
+    #
+    #       ↓
+    #
+    # Nginx Container：
+    #
+    # 80
+    #
+    ports:
+      - "127.0.0.1:8080:80"
+
+
+
+# ============================================================
+# Docker Volumes
+# ============================================================
+#
+# 这里定义由 Docker 管理的持久化 Volume。
+#
+volumes:
+
+  # PostgreSQL 数据库数据
+  #
+  # docker compose down
+  #
+  # 不会删除这个 Volume。
+  #
+  # 但是：
+  #
+  # docker compose down -v
+  #
+  # 会删除 Volume。
+  #
+  # 所以以后有正式数据后不要随便执行 -v。
+  #
+  postgres-data:

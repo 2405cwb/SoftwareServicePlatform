@@ -50,6 +50,14 @@ builder.Services.AddSignalR();
  */
 builder.Services.AddScoped<
     NotificationPolicySeeder>();
+
+
+// 全新数据库首次启动时创建管理员账号
+builder.Services.AddScoped<AdminAccountSeeder>();
+
+
+
+
 /*
  * ==========================================
  * 外部通知统一调度服务
@@ -251,13 +259,23 @@ var app = builder.Build();
 using (var scope =
        app.Services.CreateScope())
 {
+    // 初始化默认通知策略
     var notificationPolicySeeder =
         scope.ServiceProvider
             .GetRequiredService<
                 NotificationPolicySeeder>();
 
-
     await notificationPolicySeeder
+        .SeedAsync();
+
+
+    // 初始化首个系统管理员
+    var adminAccountSeeder =
+        scope.ServiceProvider
+            .GetRequiredService<
+                AdminAccountSeeder>();
+
+    await adminAccountSeeder
         .SeedAsync();
 }
 
