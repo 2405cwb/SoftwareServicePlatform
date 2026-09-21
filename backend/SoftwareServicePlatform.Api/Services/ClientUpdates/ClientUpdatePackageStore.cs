@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using SoftwareServicePlatform.Api.Models;
-
+using System.Text;
 namespace SoftwareServicePlatform.Api.Services.ClientUpdates
 {
     /// <summary>
@@ -694,17 +694,43 @@ namespace SoftwareServicePlatform.Api.Services.ClientUpdates
 
 
         private static void SafeExtractZip(
-            string zipPath,
-            string extractRoot)
+    string zipPath,
+    string extractRoot)
         {
-            using var archive =
-                ZipFile.OpenRead(
-                    zipPath
-                );
+            Encoding.RegisterProvider(
+    CodePagesEncodingProvider.Instance);
 
-            foreach (
-                var entry
-                in archive.Entries)
+            var zipEntryEncoding =
+                Encoding.GetEncoding(936);
+
+            using var zipStream =
+                new FileStream(
+                    zipPath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.Read);
+
+            using var archive =
+                new ZipArchive(
+                    zipStream,
+                    ZipArchiveMode.Read,
+                    leaveOpen: false,
+                    entryNameEncoding: zipEntryEncoding);
+
+            /*
+             * 记录每一个已经成功解压的文件。
+             *
+             * 如果后面出现目标路径冲突，
+             * 可以直接知道：
+             *
+             * 当前 ZIP Entry 是谁；
+             * 前一个写入这个位置的 Entry 是谁。
+             */
+            var extractedEntries =
+                new Dictionary<string, string>(
+                    StringComparer.OrdinalIgnoreCase);
+
+            foreach (var entry in archive.Entries)
             {
                 var rawPath =
                     entry.FullName
@@ -713,18 +739,13 @@ namespace SoftwareServicePlatform.Api.Services.ClientUpdates
                 /*
                  * ZIP 目录项。
                  */
-                if (
-                    rawPath.EndsWith('/')
-                )
+                if (rawPath.EndsWith('/'))
                 {
                     var directoryRelative =
-                        rawPath
-                            .TrimEnd('/');
+                        rawPath.TrimEnd('/');
 
-                    if (
-                        string.IsNullOrWhiteSpace(
-                            directoryRelative)
-                    )
+                    if (string.IsNullOrWhiteSpace(
+                            directoryRelative))
                     {
                         continue;
                     }
@@ -732,50 +753,69 @@ namespace SoftwareServicePlatform.Api.Services.ClientUpdates
                     var directoryPath =
                         GetSafeCombinedPath(
                             extractRoot,
-                            directoryRelative
-                        );
+                            directoryRelative);
 
                     Directory.CreateDirectory(
-                        directoryPath
-                    );
+                        directoryPath);
 
                     continue;
                 }
 
                 var relativePath =
                     NormalizeRelativePath(
-                        rawPath
-                    );
+                        rawPath);
 
                 var destinationPath =
                     GetSafeCombinedPath(
                         extractRoot,
-                        relativePath
-                    );
+                        relativePath);
 
                 Directory.CreateDirectory(
                     Path.GetDirectoryName(
-                        destinationPath
-                    )!
-                );
+                        destinationPath)!);
 
                 /*
-                 * 同一个 ZIP 不允许用多个 Entry 覆盖同一个目标。
+                 * 当前代码真正发生异常的位置。
+                 *
+                 * 这里把详细信息一起返回，
+                 * 不再只显示一句“ZIP 存在重复文件”。
                  */
-                if (
-                    File.Exists(
-                        destinationPath)
-                )
+                if (File.Exists(destinationPath))
                 {
+                    extractedEntries.TryGetValue(
+                        destinationPath,
+                        out var previousEntry);
+
                     throw new InvalidDataException(
-                        $"ZIP 存在重复文件：{relativePath}"
-                    );
+                        "ZIP 解压目标路径发生冲突。\r\n"
+                        + $"当前 Entry：{entry.FullName}\r\n"
+                        + $"当前归一化路径：{relativePath}\r\n"
+                        + $"目标文件：{destinationPath}\r\n"
+                        + $"此前 Entry："
+                        + (previousEntry
+                            ?? "未记录（可能是 Windows 路径映射冲突）"));
                 }
 
-                entry.ExtractToFile(
-                    destinationPath,
-                    overwrite: false
-                );
+                try
+                {
+                    entry.ExtractToFile(
+                        destinationPath,
+                        overwrite: false);
+
+                    extractedEntries[
+                        destinationPath] =
+                        entry.FullName;
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidDataException(
+                        "ZIP 文件解压失败。\r\n"
+                        + $"Entry：{entry.FullName}\r\n"
+                        + $"归一化路径：{relativePath}\r\n"
+                        + $"目标文件：{destinationPath}\r\n"
+                        + $"原因：{ex.Message}",
+                        ex);
+                }
             }
         }
 

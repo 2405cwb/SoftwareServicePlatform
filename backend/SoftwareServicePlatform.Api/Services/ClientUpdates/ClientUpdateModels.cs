@@ -63,6 +63,8 @@ namespace SoftwareServicePlatform.Api.Services.ClientUpdates
 
         public string Version { get; set; } = string.Empty;
 
+        public string VersionType { get; set; } = string.Empty;
+
         public string PublishStatus { get; set; } = string.Empty;
 
         public bool HasUpdatePackage { get; set; }

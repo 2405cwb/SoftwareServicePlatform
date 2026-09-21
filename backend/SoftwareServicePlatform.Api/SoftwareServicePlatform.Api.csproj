@@ -4,6 +4,22 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+	  <!--
+      storage 是运行时数据目录，不属于后端项目源码。
+
+      自动更新 ZIP 中可能包含：
+      *.cs
+      *.resx
+      Properties/Settings.Designer.cs
+      等客户端工程文件。
+
+      必须禁止 MSBuild 把 storage 下的文件
+      当成 WebAPI 项目源码参与编译。
+    -->
+	  <DefaultItemExcludes>
+		  $(DefaultItemExcludes);storage\**\*
+	  </DefaultItemExcludes>
+
   </PropertyGroup>
 
   <ItemGroup>

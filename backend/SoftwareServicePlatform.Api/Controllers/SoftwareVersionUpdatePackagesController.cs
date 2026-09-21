@@ -113,10 +113,13 @@ namespace SoftwareServicePlatform.Api.Controllers
                                 ?? string.Empty,
 
                             Version =
-                                version.Version,
+    version.Version,
+
+                            VersionType =
+    version.VersionType,
 
                             PublishStatus =
-                                version.PublishStatus,
+    version.PublishStatus,
 
                             HasUpdatePackage =
                                 manifestValid,

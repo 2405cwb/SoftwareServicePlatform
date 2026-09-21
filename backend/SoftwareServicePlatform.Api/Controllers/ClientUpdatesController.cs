@@ -162,8 +162,7 @@ namespace SoftwareServicePlatform.Api.Controllers
                             "Published"
                             &&
                             x.IsPublished
-                            &&
-                            x.AllowDownload
+                   
                     )
                     .ToListAsync(
                         cancellationToken
@@ -725,9 +724,8 @@ namespace SoftwareServicePlatform.Api.Controllers
                         ==
                         "Published"
                         &&
-                        x.IsPublished
-                        &&
-                        x.AllowDownload,
+                        x.IsPublished,
+                       
                     cancellationToken
                 );
         }
