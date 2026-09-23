@@ -1,0 +1,100 @@
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Alibaba Cloud ECS
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Configure SSH
+        shell: bash
+        env:
+          ECS_HOST: ${{ secrets.ECS_HOST }}
+          ECS_SSH_KEY: ${{ secrets.ECS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$ECS_SSH_KEY" > ~/.ssh/ssp-prod-key
+          chmod 600 ~/.ssh/ssp-prod-key
+          ssh-keyscan -H "$ECS_HOST" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Backup and deploy
+        shell: bash
+        env:
+          ECS_HOST: ${{ secrets.ECS_HOST }}
+          ECS_USER: ${{ secrets.ECS_USER }}
+        run: |
+          set -euo pipefail
+
+          ssh -i ~/.ssh/ssp-prod-key "$ECS_USER@$ECS_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+
+          APP_DIR="/opt/software-service-platform/app"
+          cd "$APP_DIR"
+
+          echo "== Current revision =="
+          git rev-parse --short HEAD || true
+
+          echo "== Backup current production data =="
+          chmod +x scripts/backup-production.sh
+          ./scripts/backup-production.sh "$APP_DIR"
+
+          echo "== Update source to origin/main =="
+          git fetch origin main
+          git reset --hard origin/main
+
+          echo "== Rebuild and start containers =="
+          docker compose \
+            -f compose.prod.yaml \
+            --env-file .env \
+            up -d --build
+
+          echo "== Container status =="
+          docker compose \
+            -f compose.prod.yaml \
+            --env-file .env \
+            ps
+
+          echo "== Health check =="
+          ok=0
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1/api/health >/tmp/ssp-health.json; then
+              cat /tmp/ssp-health.json
+              echo
+              ok=1
+              break
+            fi
+
+            echo "Waiting for application... ($i/30)"
+            sleep 3
+          done
+
+          if [ "$ok" -ne 1 ]; then
+            echo "Health check failed."
+            echo "== API logs =="
+            docker compose \
+              -f compose.prod.yaml \
+              --env-file .env \
+              logs --tail=120 api || true
+
+            echo "== Frontend logs =="
+            docker compose \
+              -f compose.prod.yaml \
+              --env-file .env \
+              logs --tail=120 frontend || true
+
+            exit 1
+          fi
+
+          echo "Deployment succeeded."
+          REMOTE
