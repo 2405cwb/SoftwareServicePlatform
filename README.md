@@ -2,58 +2,53 @@
 
 > 软件服务管理平台 —— 面向软件交付、版本发布、客户端升级、客户服务与工单协同的一体化管理平台。
 
-SoftwareServicePlatform 用于统一管理公司客户、软件产品、软件版本、安装包、客户端自动更新、下载记录、工单、SLA 和通知流程，逐步替代依赖微信、网盘、FTP 和人工记录的软件交付与售后方式。
+SoftwareServicePlatform 用于统一管理公司客户、软件产品、软件版本、安装包、客户端自动更新、更新设备授权、下载 / 升级记录、工单、SLA、通知、操作审计与生产部署流程，逐步替代依赖微信、网盘、FTP 和人工记录的软件交付与售后方式。
 
-当前项目已形成从 **客户授权 → 软件发布 → 更新设备授权 → 客户下载 / 自动升级 → 问题反馈 → 工单处理 → SLA → 实时通知** 的基础业务闭环。
-
-> 当前状态：持续开发 / 内部试用阶段  
-> 更新日期：2026-09-23
-
----
-
-## 1. 项目背景
-
-传统的软件交付和售后流程中，常见问题包括：
-
-- 软件通过微信、网盘、FTP 等多个渠道发送
-- 客户使用的软件版本不统一
-- 很难确认某个客户当前使用哪个版本
-- 安装包和更新包缺少统一管理
-- 客户升级过程不可追踪
-- 售后问题主要依赖微信沟通
-- 问题处理过程缺少统一记录
-- 开发、售后、销售之间的信息容易断层
-- 无法准确统计下载、升级、工单、响应时间等数据
-
-SoftwareServicePlatform 希望将这些流程统一到一个平台中。
+当前项目已经形成：
 
 ```text
-客户
+客户授权
   ↓
-客户软件授权
+软件 / 版本管理
   ↓
-软件 / 软件版本
+发布前检查
   ↓
 版本发布
   ↓
 更新设备授权
   ↓
-安装包下载 / 客户端自动更新
+安装包下载 / 客户端自动升级
   ↓
 下载与升级记录
   ↓
-客户问题反馈
+问题反馈 / Ticket
   ↓
-Ticket 工单
+SLA / 通知
   ↓
-分诊 / 指派 / 处理
+运维与操作审计
   ↓
-SLA 跟踪
-  ↓
-站内通知 / 外部通知
-  ↓
-问题关闭
+CI / 手动生产部署
 ```
+
+> 当前状态：持续开发 / 内部试用阶段  
+> README 更新日期：2026-09-23
+
+---
+
+## 1. 项目背景
+
+传统软件交付和售后流程中常见：
+
+- 软件通过微信、网盘、FTP 等多个渠道发送
+- 客户使用的软件版本不统一
+- 无法快速确认某个客户当前可用版本
+- 安装包和更新包缺少统一管理
+- 客户升级过程不可追踪
+- 客户问题依赖聊天记录跟踪
+- 开发、售后、销售之间信息容易断层
+- 缺少下载、升级、工单、SLA、错误与审计数据
+
+SoftwareServicePlatform 的目标是将这些流程统一到一个平台中。
 
 ---
 
@@ -74,96 +69,97 @@ SLA 跟踪
 - .NET 10
 - ASP.NET Core Web API
 - Entity Framework Core 10
-- ASP.NET Core JWT Authentication
+- JWT Authentication
 - ASP.NET Core SignalR
 - ASP.NET Core Identity PasswordHasher
 - Npgsql
 
 ### 数据库
 
-- PostgreSQL
+- PostgreSQL 17
+- EF Core Migration
 
-### Windows 自动更新器
+### Windows 自动更新
 
 - .NET 10 Windows
 - WinForms
-- Self-contained Publish
-- Single File
 - UAC `requireAdministrator`
 - SHA256 文件校验
 - 文件级增量更新
-- 自动备份与失败回滚
-- 图形化进度窗口
+- 更新前本地备份
+- 更新失败本地回滚
+- 图形化更新进度
 - 设备级 UpdateToken
+- Updater 两阶段自更新
 
 ### 客户端接入
 
 - C# WinForms .NET Framework 4.8
 - Qt 5.8
-- 统一 `updater.bootstrap.json`
-- 设备级更新授权
-- LocalAppData 独立更新配置
+- `updater.bootstrap.json`
+- LocalAppData 独立设备更新配置
+- 一次性更新激活码
 
-### 开发工具
+### 工程化
 
-- Visual Studio 2022
-- Visual Studio Code
-- DBeaver
-- Git
-- GitHub
+- Docker / Docker Compose
+- Nginx
+- GitHub Actions CI
+- GitHub Actions 手动生产部署
+- PostgreSQL + storage 生产备份 / 恢复脚本
+- `/api/health` 健康检查
+- Git 分支 + Pull Request 工作流
 
 ---
 
 ## 3. 系统架构
 
 ```text
-┌─────────────────────────────┐
-│        React Frontend       │
-│ Dashboard / Customer / ...  │
-└──────────────┬──────────────┘
+┌──────────────────────────────┐
+│        React Frontend        │
+│ Dashboard / Customer / ...   │
+└──────────────┬───────────────┘
                │ HTTP / SignalR
                ↓
-┌─────────────────────────────┐
-│      ASP.NET Core API       │
-│ Auth / Ticket / Update /... │
-└──────────────┬──────────────┘
+┌──────────────────────────────┐
+│       ASP.NET Core API       │
+│ Auth / Release / Ticket /... │
+└──────────────┬───────────────┘
                │ EF Core
                ↓
-┌─────────────────────────────┐
-│         PostgreSQL          │
-└─────────────────────────────┘
+┌──────────────────────────────┐
+│          PostgreSQL          │
+└──────────────────────────────┘
 
                  ↑
                  │ X-Update-Token
                  │ 每个 ClientInstallation 独立 Token
                  │
-┌─────────────────────────────┐
-│ Windows Application Client  │
-│           +                 │
-│ SoftwareServicePlatform     │
-│          Updater            │
-└─────────────────────────────┘
+┌──────────────────────────────┐
+│ Windows Application Client   │
+│              +               │
+│ SoftwareServicePlatform      │
+│ Updater / UpdaterBootstrap   │
+└──────────────────────────────┘
 ```
 
-更新授权核心关系：
+更新授权关系：
 
 ```text
 Customer
-   ↓
+  ↓
 CustomerSoftware
-   ↓
+  ↓
 一次性更新激活码
-   ↓
+  ↓
 ClientInstallation
-   ↓
+  ↓
 设备独立 UpdateToken
 ```
 
 ---
 
-## 4. 当前核心功能
-
-### 4.1 客户管理
+## 4. 客户管理
 
 支持：
 
@@ -183,7 +179,9 @@ ClientInstallation
 
 ---
 
-### 4.2 软件管理
+## 5. 软件与版本管理
+
+### 软件管理
 
 支持：
 
@@ -192,54 +190,71 @@ ClientInstallation
 - 软件名称
 - 软件状态
 - 软件与多个版本关联
-- 软件与多个客户授权关联
+- 软件与多个客户关联
 
 关系：
 
 ```text
 Software
-  ├─ SoftwareVersion
-  └─ CustomerSoftware
+├─ SoftwareVersion
+└─ CustomerSoftware
 ```
 
----
-
-### 4.3 软件版本管理
+### 版本管理
 
 支持：
 
-- 创建软件版本
-- 编辑版本信息
-- Release / Beta / Dev 等版本类型
-- 发布状态管理
-- 发布说明
-- 安装包上传
-- 安装包下载
-- 发布客户范围控制
+- 创建 / 编辑软件版本
+- Release / Beta / Dev 类型
+- Draft / Published 等发布状态
+- 发布标题和发布说明
+- 完整安装包上传
+- 文件级更新 ZIP 上传
 - 指定客户发布
 - 全部客户发布
-- 文件级更新 ZIP
 - 目标版本文件清单
-
-同一软件可以维护多个历史版本。
+- 下载与升级记录
 
 ---
 
-## 5. 客户软件授权
+## 6. 发布前检查
 
-通过：
+平台已经加入统一的 Release Preflight。
+
+发布前会对版本进行检查，避免把明显错误的版本发布出去。
+
+主要检查包括：
+
+- 版本必须处于可发布状态
+- Dev 版本不能按正式版本发布
+- 目标版本号必须高于当前已发布版本
+- 软件必须可用
+- 完整安装包路径与文件状态
+- 更新 Manifest 是否存在且与软件 / 版本匹配
+- 至少存在一种可用发布包
+- 发布目标客户数量
+- 发布说明 / 标题缺失提醒
+- 是否包含 Updater 自更新文件
+
+前端可以主动执行发布前检查，真正发布接口也会经过后端统一检查。
+
+---
+
+## 7. 客户软件授权
+
+公司级授权通过：
 
 ```text
 CustomerSoftware
 ```
 
-建立客户和软件之间的授权关系。
+建立客户与软件的关系。
 
 ```text
 Customer
-    ↓
+  ↓
 CustomerSoftware
-    ↓
+  ↓
 Software
 ```
 
@@ -249,9 +264,11 @@ Software
 CustomerId + SoftwareId
 ```
 
-建立唯一约束，防止重复绑定。
+建立唯一约束，避免重复绑定。
 
-`CustomerSoftware` 表示公司级的软件授权；设备级自动更新权限由：
+`CustomerSoftware` 只表示“该客户可以使用该软件”。
+
+设备更新权限由：
 
 ```text
 ClientInstallation
@@ -259,7 +276,7 @@ ClientInstallation
 
 单独管理。
 
-因此同一家公司使用同一款软件时，可以存在多台独立设备：
+因此同一客户使用同一款软件时，可以存在多台独立设备：
 
 ```text
 CustomerSoftware
@@ -268,11 +285,76 @@ CustomerSoftware
 └─ ClientInstallation C
 ```
 
-客户只能访问自己已授权的软件。
+---
+
+## 8. 更新设备授权
+
+### 一次性更新激活码
+
+客户可在“我的软件”中生成短期、一次性的更新激活码。
+
+```text
+网页生成更新激活码
+  ↓
+新设备第一次输入
+  ↓
+服务器校验 CustomerSoftware
+  ↓
+创建 ClientInstallation
+  ↓
+生成该设备独立 UpdateToken
+```
+
+更新激活码不是软件注册码，不控制业务软件能否正常启动。
+
+### 设备级 UpdateToken
+
+后续更新请求通过：
+
+```http
+X-Update-Token: ssp_upd_xxx
+```
+
+认证。
+
+数据库不保存完整明文 Token，只保存 Hash 和必要的展示信息。
+
+旧的公司级共享 `ClientUpdateCredentials` 数据模型已经从当前模型中移除，当前更新授权以 `ClientInstallation` 为核心。
+
+### 设备数量限制
+
+`CustomerSoftware.MaxDeviceCount` 用于限制同一个“客户 + 软件”允许保持启用状态的设备数量：
+
+```text
+0 = 不限制
+>0 = 最大启用设备数
+```
+
+服务端会在生成 / 使用激活码时进行设备数量校验。
+
+### 设备管理
+
+管理员支持：
+
+- 查看客户 / 软件设备数量
+- 查看启用 / 停用设备
+- 设置设备数量上限
+- 修改设备名称
+- 修改设备备注
+- 停用某台设备更新权限
+- 重新启用设备更新权限
+
+停用某台设备后：
+
+```text
+业务软件正常使用           ✅
+该设备在线自动更新         ❌
+同客户其他设备             ✅
+```
 
 ---
 
-## 6. 客户门户
+## 9. 客户门户
 
 Customer 用户登录后可进入：
 
@@ -282,31 +364,17 @@ Customer 用户登录后可进入：
 
 查看：
 
-```text
-当前客户
-  ↓
-已授权软件
-  ↓
-可用正式版本
-  ↓
-安装包 / 版本资料
-```
+- 当前客户已授权的软件
+- 可用正式版本
+- 安装包与版本资料
+- 更新激活码
+- 更新设备列表
 
-同时支持自动更新相关功能：
-
-```text
-获取更新激活码
-更新设备管理
-停用某台设备的更新权限
-```
-
-“更新激活码”只用于给一台新设备开通自动更新能力，不是软件注册码，也不会决定业务软件能否正常启动。
-
-客户身份由 JWT 中的 CustomerId 和服务器数据库共同校验，不能通过修改前端参数访问其他客户数据。
+客户身份由 JWT 与服务器数据库共同校验，不能通过修改前端参数访问其他客户的数据。
 
 ---
 
-## 7. 用户与权限系统
+## 10. 用户与权限
 
 当前角色：
 
@@ -318,68 +386,25 @@ Customer 用户登录后可进入：
 | Sales | 销售人员 |
 | Customer | 客户用户 |
 
-系统同时进行：
+权限由三层共同控制：
 
 ```text
 前端路由权限
 +
-后端 Authorize / Roles 权限
+后端 Authorize / Roles
 +
 数据库业务权限校验
 ```
 
-主要权限示例：
+所有已登录用户都可以修改自己的密码。
 
-```text
-Admin
-├─ 客户管理
-├─ 软件管理
-├─ 版本管理
-├─ 客户端更新
-├─ 更新设备授权
-├─ 下载 / 更新记录
-├─ 工单管理
-├─ 用户管理
-├─ SLA 设置
-├─ 通知策略
-└─ 修改自己的密码
-
-Support
-├─ 客户管理
-├─ 软件管理
-├─ 版本管理
-├─ 下载 / 更新记录
-├─ 工单管理
-└─ 修改自己的密码
-
-Developer
-├─ 软件管理
-├─ 版本管理
-├─ 客户端更新
-├─ 工单管理
-└─ 修改自己的密码
-
-Sales
-├─ 客户管理
-├─ 工作台
-└─ 修改自己的密码
-
-Customer
-├─ 我的软件
-├─ 更新激活码
-├─ 更新设备管理
-├─ 工单管理
-├─ 工作台
-└─ 修改自己的密码
-```
+管理员仍可以在用户管理中重置其他账号密码。
 
 ---
 
-## 8. 登录认证与账户安全
+## 11. 登录认证与账户安全
 
 系统使用 JWT Authentication。
-
-基本流程：
 
 ```text
 用户名 + 密码
@@ -392,22 +417,12 @@ PasswordHasher 验证
   ↓
 签发 JWT
   ↓
-前端 sessionStorage 保存
+前端保存会话
   ↓
-apiFetch 自动附加 Authorization
+后续请求自动附加 Authorization
 ```
 
-JWT 中包含用户身份、角色以及 CustomerId 等业务信息。
-
-所有登录角色都可以通过：
-
-```text
-/change-password
-```
-
-修改自己的密码。
-
-接口：
+修改自己的密码：
 
 ```text
 POST /api/account/change-password
@@ -415,13 +430,12 @@ POST /api/account/change-password
 
 规则包括：
 
-- 必须验证当前密码
+- 验证当前密码
 - 新密码至少 8 位
-- 两次新密码必须一致
 - 新密码不能与当前密码相同
-- 修改成功后前端主动退出，要求使用新密码重新登录
+- 修改成功后重新登录
 
-管理员仍然可以在用户管理中重置其他账号密码：
+管理员重置密码：
 
 ```text
 POST /api/users/{id}/reset-password
@@ -429,117 +443,11 @@ POST /api/users/{id}/reset-password
 
 ---
 
-## 9. 客户端自动更新
+## 12. 文件级增量更新
 
-客户端自动更新是当前平台的重要功能之一。
+平台的增量更新不是二进制 Patch，而是：
 
-后台入口：
-
-```text
-/client-updates
-```
-
-管理员设备级更新授权入口：
-
-```text
-/client-devices
-```
-
-### 9.1 设备级更新授权
-
-新客户端使用设备级更新授权。
-
-核心关系：
-
-```text
-CustomerSoftware
-        ↓
-一次性更新激活码
-        ↓
-ClientInstallation
-        ↓
-设备独立 UpdateToken
-```
-
-客户在“我的软件”页面点击：
-
-```text
-获取更新激活码
-```
-
-获得一个短期、一次性使用的更新激活码。
-
-桌面软件第一次需要开通更新时：
-
-```text
-输入更新激活码
-  ↓
-POST /api/client-activation/activate
-  ↓
-服务器验证客户 + 软件关系
-  ↓
-创建 ClientInstallation
-  ↓
-生成该设备独立 UpdateToken
-  ↓
-客户端保存本机 updater.json
-```
-
-后续检查更新通过：
-
-```http
-X-Update-Token: ssp_upd_xxx
-```
-
-认证。
-
-数据库不保存明文 UpdateToken，只保存：
-
-```text
-TokenHash
-TokenPrefix
-IsEnabled
-ActivatedAt
-LastUsedAt
-UpdatedAt
-```
-
-管理员可以在“更新设备授权”中查看：
-
-```text
-客户
-软件
-已授权设备数量
-正常设备数量
-已停用设备数量
-最近检查时间
-具体设备
-```
-
-并可以对某一台设备执行：
-
-```text
-停用更新
-重新启用更新
-```
-
-停用某台设备后：
-
-```text
-业务软件正常启动和使用 ✅
-该设备在线自动更新失效 ❌
-同公司其他设备不受影响 ✅
-```
-
-当前测试阶段代码中仍保留旧共享 UpdateToken 的兼容逻辑，后续确认不再需要后可以单独清理。
-
----
-
-### 9.2 文件级增量更新
-
-平台的“增量更新”不是传统二进制 Patch，而是：
-
-> 上传目标版本完整目录，服务端生成目标版本文件清单，客户端根据 SHA256 比较后只下载发生变化的文件。
+> 上传目标版本目录，服务端生成目标文件清单；客户端根据本地 SHA256 比较，只下载变化或缺失的文件。
 
 流程：
 
@@ -550,39 +458,39 @@ UpdatedAt
   ↓
 扫描目标文件
   ↓
-计算每个文件 SHA256
+计算 SHA256
   ↓
-生成 manifest.json
+生成 Manifest
   ↓
-客户端检查版本
+客户端检查更新
   ↓
-比较本地 SHA256
+比较本地文件
   ↓
 只下载变化 / 缺失文件
   ↓
 备份旧文件
   ↓
-替换文件
+替换
   ↓
-再次校验 SHA256
+再次校验
   ↓
-写入 version.txt
+更新 version.txt
   ↓
-重新启动主程序
+重启业务程序
 ```
 
 例如：
 
 ```text
 目标版本：1309 个文件
-本地真正变化：14 个文件
+实际变化：14 个文件
 
-最终只下载 14 个文件
+→ 客户端只下载真正需要更新的文件
 ```
 
 ---
 
-### 9.3 更新包控制文件
+## 13. 更新包控制与安全
 
 支持：
 
@@ -591,37 +499,21 @@ UpdatedAt
 .update-delete.txt
 ```
 
-`.update-ignore.txt` 用于指定不参与更新的文件。
+其中：
 
-`.update-delete.txt` 用于声明新版本中需要删除的旧文件。
+- `.update-ignore.txt`：排除不参与更新的文件
+- `.update-delete.txt`：声明目标版本需要删除的旧文件
 
-默认受保护路径包括：
-
-```text
-updater/**
-.update-temp/**
-.update-backup/**
-version.txt
-.update-ignore.txt
-.update-delete.txt
-```
-
-当前 Updater 不通过普通增量更新覆盖自身。
-
----
-
-### 9.4 ZIP 安全保护
-
-服务端对更新 ZIP 做安全检查，包括：
+服务端 ZIP 安全检查包括：
 
 - Zip Slip / Path Traversal 防护
-- Windows 大小写路径冲突检测
-- 重复文件路径检测
-- 更新清单与删除清单冲突检查
-- ZIP 文件数量限制
+- Windows 大小写路径冲突
+- 重复文件路径
+- 更新 / 删除清单冲突
+- 文件数量限制
 - 单文件解压大小限制
-- ZIP 总解压大小限制
-- 实际解压字节再次校验
+- 总解压大小限制
+- 实际解压字节校验
 
 当前默认限制：
 
@@ -633,48 +525,33 @@ version.txt
 
 ---
 
-## 10. Windows Updater
+## 14. Windows Updater
 
-仓库包含独立 Windows Updater：
+仓库包含：
 
 ```text
 clients/
-└─ SoftwareServicePlatform.Updater/
+├─ SoftwareServicePlatform.Updater/
+└─ SoftwareServicePlatform.UpdaterBootstrap/
 ```
 
-Updater 当前使用 WinForms 图形界面，而不是控制台黑窗口。
+Updater 主要能力：
 
-支持显示：
-
-```text
-当前版本
-目标版本
-当前阶段
-文件数量
-百分比
-当前处理文件
-更新完成 / 失败状态
-```
-
-核心能力包括：
-
+- WinForms 图形进度窗口
 - UAC 管理员权限
-- WinForms 更新进度窗口
-- DPI 缩放适配
+- 当前版本 / 目标版本显示
+- 文件数量和百分比
 - SHA256 校验
 - 文件级增量下载
 - 等待主程序退出
-- 更新前文件备份
-- 更新失败自动回滚
-- 成功后写入 `version.txt`
-- 成功后自动重启主程序
-- 增量失败可回退完整安装包
-- `updater.log` 错误日志
-- 错误 MessageBox
+- 更新前本地备份
+- 更新失败本地回滚
+- 写入 `version.txt`
+- 自动重启主程序
+- 增量失败时可回退完整安装包
+- `updater.log`
 
-### 新安装包目录
-
-推荐：
+### 推荐安装结构
 
 ```text
 AppRoot/
@@ -682,42 +559,56 @@ AppRoot/
 ├─ version.txt
 └─ updater/
    ├─ SoftwareServicePlatform.Updater.exe
+   ├─ SoftwareServicePlatform.UpdaterBootstrap.exe
    └─ updater.bootstrap.json
 ```
 
-新安装包**不需要预置真实 `updater.json`**。
+新安装包不需要预置包含真实 Token 的 `updater.json`。
 
-`updater.bootstrap.json` 只包含非敏感信息：
-
-```json
-{
-  "serverUrl": "https://ssp.example.com",
-  "softwareCode": "YourSoftwareCode",
-  "versionFile": "version.txt",
-  "mainExecutable": "YourSoftware.exe",
-  "fallbackToFullInstaller": true,
-  "restartAfterUpdate": true,
-  "waitForProcessSeconds": 60
-}
-```
-
-完成更新设备授权后，真正包含设备 UpdateToken 的配置保存到：
+真正包含设备 UpdateToken 的配置保存到：
 
 ```text
 %LOCALAPPDATA%\SoftwareServicePlatform\UpdaterConfigs\<softwareCode>\updater.json
 ```
 
-主程序启动 Updater 时显式传入：
+---
+
+## 15. Updater 自更新
+
+正在运行的 `SoftwareServicePlatform.Updater.exe` 无法安全直接覆盖自己，因此项目加入：
 
 ```text
---config "<LocalAppData中的updater.json>"
+SoftwareServicePlatform.UpdaterBootstrap.exe
 ```
 
-> 不要将真实 UpdateToken 或生成后的真实 `updater.json` 提交到公开 Git 仓库。
+当某个版本需要更新 Updater 本身时，在更新 ZIP 中加入：
+
+```text
+.updater-self/
+└─ SoftwareServicePlatform.Updater.exe
+```
+
+流程：
+
+```text
+旧 Updater 完成业务文件更新
+  ↓
+启动 UpdaterBootstrap
+  ↓
+旧 Updater 退出
+  ↓
+Bootstrap 替换 updater/SoftwareServicePlatform.Updater.exe
+  ↓
+删除 .updater-self
+  ↓
+重新启动业务软件
+```
+
+普通版本不需要包含 `.updater-self/`。
 
 ---
 
-## 11. 客户端接入示例
+## 16. 客户端接入示例
 
 仓库提供：
 
@@ -727,47 +618,31 @@ examples/
 └─ Qt5/
 ```
 
-两套示例使用同一套设备级更新授权逻辑：
+基本流程：
 
 ```text
-启动
+业务软件启动
   ↓
 读取 updater.bootstrap.json
   ↓
-本机是否已有设备 updater.json？
-  ├─ 有 → 直接检查更新
+检查 LocalAppData 是否已有设备 updater.json
+  ├─ 有 → 检查更新
   └─ 无
-      ↓
-   弹出“设备更新授权”
       ↓
    输入一次性更新激活码
       ↓
    获取设备独立 UpdateToken
       ↓
-   保存到 LocalAppData
+   保存本机配置
       ↓
-   继续检查更新
+   检查更新
 ```
 
-后续：
-
-```text
-读取 version.txt
-  ↓
-调用平台检查更新接口
-  ↓
-提示用户
-  ↓
-启动 Updater
-  ↓
-退出主程序
-```
-
-自动更新是辅助能力。普通网络错误或服务器暂时不可用时，不应阻止业务软件正常启动。
+普通网络错误或更新服务器暂时不可用，不应阻止业务软件正常启动。
 
 ---
 
-## 12. 下载 / 更新记录
+## 17. 下载与更新记录
 
 平台统一记录：
 
@@ -777,27 +652,19 @@ AutoIncremental
 AutoFullPackage
 ```
 
-即：
+记录包括：
 
-- 客户手工下载安装包
-- 客户端自动增量更新
-- 自动完整安装包更新
-
-记录内容包括：
-
-```text
-客户
-软件
-来源
-旧版本
-目标版本
-更新方式
-文件数量
-实际下载大小
-状态
-错误信息
-时间
-```
+- 客户
+- 软件
+- 来源
+- 旧版本
+- 目标版本
+- 更新方式
+- 文件数量
+- 下载大小
+- 状态
+- 错误信息
+- 时间
 
 自动更新状态：
 
@@ -807,21 +674,17 @@ Success
 Failed
 ```
 
-更新记录采用“每次升级尝试一条记录”，不会因为一个版本下载多个文件而产生大量记录。
-
 ---
 
-## 13. Ticket 工单系统
+## 18. Ticket 工单系统
 
-当前已经实现工单主流程。
+当前已经实现主要工单流程：
 
-支持：
-
-- Customer 客户创建工单
-- 内部人员代客户创建工单
+- Customer 创建工单
+- 内部人员代客户创建
 - 工单编号
 - 客户与软件关联
-- 搜索和状态筛选
+- 搜索和筛选
 - 优先级
 - 来源
 - 分诊
@@ -829,19 +692,15 @@ Failed
 - 公开回复
 - 内部处理记录
 - 附件
-- 解决
-- 关闭
-- 重新打开
-- 客户权限隔离
+- Resolved / Closed / Reopen
+- 客户数据隔离
 
-基本流程：
+典型流程：
 
 ```text
-客户提交问题
-  ↓
 Pending
   ↓
-售后分诊
+分诊
   ↓
 设置优先级
   ↓
@@ -849,36 +708,22 @@ Pending
   ↓
 Processing
   ↓
-处理记录 / 附件
-  ↓
 Resolved
   ↓
 Closed
 ```
 
-Developer、Support、Admin 和 Customer 根据各自权限进入工单页面。
-
 ---
 
-## 14. SLA
+## 19. SLA
 
-系统已经支持工单 SLA 配置。
+管理员可维护不同优先级的：
 
-管理员可以在：
+- 首次响应目标时间
+- 解决目标时间
+- 是否启用
 
-```text
-/sla-settings
-```
-
-维护不同优先级的：
-
-```text
-首次响应目标时间
-解决目标时间
-是否启用
-```
-
-创建工单时会保存 SLA 快照，因此以后管理员修改规则，不会影响已经创建的历史工单。
+创建工单时保存 SLA 快照，后续调整规则不会影响历史工单。
 
 系统可判断：
 
@@ -887,15 +732,11 @@ Developer、Support、Admin 和 Customer 根据各自权限进入工单页面。
 解决是否超时
 ```
 
-并由后台服务进行相关通知处理。
-
 ---
 
-## 15. 通知系统
+## 20. 通知系统
 
-平台已经实现站内通知体系。
-
-包括：
+当前支持：
 
 - Notification 数据模型
 - 未读数量
@@ -903,25 +744,11 @@ Developer、Support、Admin 和 Customer 根据各自权限进入工单页面。
 - 单条已读
 - 全部已读
 - SignalR 实时推送
-- SignalR 自动重连
-- 重连后未读数同步
-- 通知点击跳转目标页面
+- 自动重连
+- 重连后同步
+- 点击通知跳转目标页面
 
-前端右上角提供通知中心。
-
----
-
-## 16. 通知策略与外部通知
-
-管理员可以在：
-
-```text
-/notification-settings
-```
-
-维护通知策略。
-
-当前通知架构已抽象为：
+通知架构：
 
 ```text
 业务事件
@@ -937,75 +764,88 @@ RecipientResolver
 ExternalNotificationService
 ```
 
-后端当前已经接入外部通知 Sender 架构，并支持钉钉配置。
-
-设计上可继续扩展：
+当前已经具备钉钉外部通知基础能力，并可继续扩展：
 
 ```text
-DingTalk
 WeCom
 Feishu
 Email
 ...
 ```
 
-业务 Controller 不需要直接依赖具体外部平台。
-
 ---
 
-## 17. Dashboard 工作台
+## 21. 运维与操作审计
 
-系统提供：
+管理员可以访问：
 
 ```text
-/dashboard
+/operations
 ```
 
-五类角色均有工作台入口。
+运维中心用于查看：
 
-工作台用于汇总：
+- 最近 24 小时操作数量
+- API 错误数量
+- 登录失败数量
+- 客户端更新失败数量
+- 最近系统事件
+- 最近操作审计
+- 最近更新失败记录
 
-- 客户
-- 软件
-- 版本
-- 下载 / 更新
-- 工单
-- 待办
-- SLA
-- 当前用户相关业务数据
+后端通过：
 
-不同角色读取不同范围的数据。
+```text
+AuditLogMiddleware
+SystemEventMiddleware
+```
+
+记录操作与异常信息。
+
+主要数据表：
+
+```text
+AuditLogs
+SystemEventLogs
+```
+
+审计中不记录请求 Body，也不把 QueryString 作为审计内容保存，避免无意记录敏感参数。
 
 ---
 
-## 18. 平台品牌配置
+## 22. 健康检查
 
-平台标题和公司名称通过后端配置提供。
+健康检查接口：
 
-例如：
+```text
+GET /api/health
+```
+
+正常返回类似：
 
 ```json
-"Platform": {
-  "Title": "软件服务管理平台",
-  "CompanyName": "XX科技有限公司"
+{
+  "status": "ok",
+  "database": true,
+  "utc": "..."
 }
 ```
 
-前端会动态应用到：
+如果数据库无法连接，接口返回 `503 Service Unavailable`。
 
-- 登录页面
-- 后台 Header
-- 浏览器标题
-- 公司名称显示
-
-可以在不修改 React 源码的情况下进行不同公司的基础品牌部署。
+该接口同时被生产部署流程用于部署后检查。
 
 ---
 
-## 19. 项目结构
+## 23. 项目结构
 
 ```text
 SoftwareServicePlatform/
+│
+├─ .github/
+│  └─ workflows/
+│     ├─ ci.yml
+│     └─ deploy.yml
 │
 ├─ backend/
 │  └─ SoftwareServicePlatform.Api/
@@ -1013,44 +853,45 @@ SoftwareServicePlatform/
 │     ├─ Data/
 │     ├─ Dtos/
 │     ├─ Hubs/
+│     ├─ Middleware/
 │     ├─ Migrations/
 │     ├─ Models/
 │     ├─ Services/
 │     │  ├─ ClientUpdates/
 │     │  ├─ ExternalNotifications/
-│     │  └─ NotificationPolicies/
-│     ├─ Program.cs
-│     └─ appsettings.json
+│     │  ├─ NotificationPolicies/
+│     │  └─ Releases/
+│     └─ Program.cs
 │
 ├─ forntend/
 │  ├─ src/
-│  │  ├─ components/
-│  │  ├─ hooks/
-│  │  ├─ layouts/
-│  │  ├─ pages/
-│  │  ├─ services/
-│  │  ├─ styles/
-│  │  ├─ utils/
-│  │  └─ App.tsx
 │  ├─ package.json
 │  └─ vite.config.ts
 │
 ├─ clients/
-│  └─ SoftwareServicePlatform.Updater/
+│  ├─ SoftwareServicePlatform.Updater/
+│  └─ SoftwareServicePlatform.UpdaterBootstrap/
 │
 ├─ examples/
 │  ├─ CSharpWinForms/
 │  └─ Qt5/
 │
-├─ .gitignore
+├─ scripts/
+│  ├─ backup-production.sh
+│  ├─ restore-production.sh
+│  ├─ cleanup-legacy-update-credential.ps1
+│  └─ create-hardening-migration.ps1
+│
+├─ compose.yaml
+├─ compose.prod.yaml
 └─ README.md
 ```
 
-> 前端目录因为项目早期历史原因仍命名为 `forntend`，暂时保持不变。
+> 前端目录因项目早期历史原因仍命名为 `forntend`，暂时保持不变。
 
 ---
 
-## 20. 本地开发
+## 24. 本地开发
 
 ### 环境要求
 
@@ -1062,15 +903,16 @@ PostgreSQL
 Git
 ```
 
-推荐：
+推荐工具：
 
 ```text
 Visual Studio 2022
 Visual Studio Code
 DBeaver
+Docker Desktop
 ```
 
-### 克隆项目
+克隆：
 
 ```bash
 git clone https://github.com/2405cwb/SoftwareServicePlatform.git
@@ -1079,7 +921,9 @@ cd SoftwareServicePlatform
 
 ---
 
-## 21. 启动后端
+## 25. 本地直接启动
+
+### 后端
 
 ```bash
 cd backend/SoftwareServicePlatform.Api
@@ -1087,52 +931,81 @@ dotnet restore
 dotnet run
 ```
 
-当前开发配置通常使用：
+开发地址通常为：
 
 ```text
 https://localhost:7104
 http://localhost:5108
 ```
 
----
+### 前端
 
-## 22. PostgreSQL 配置
+```bash
+cd forntend
+npm install
+npm run dev
+```
 
-推荐将开发机数据库配置放入：
+Vite 默认：
 
 ```text
-appsettings.Development.json
+http://localhost:5173
 ```
 
-示例：
-
-```json
-{
-  "ConnectionStrings": {
-    "DefaultConnection": "Host=localhost;Port=5432;Database=software_service_platform;Username=postgres;Password=YOUR_PASSWORD"
-  }
-}
-```
-
-同时配置 JWT：
-
-```json
-{
-  "Jwt": {
-    "Issuer": "SoftwareServicePlatform",
-    "Audience": "SoftwareServicePlatform",
-    "Key": "YOUR_LONG_RANDOM_SECRET"
-  }
-}
-```
-
-> 数据库密码、JWT Key、UpdateToken、Webhook 等敏感配置不要提交到公开仓库。
+开发环境 `/api` 代理到本地 API。
 
 ---
 
-## 23. EF Core Migration
+## 26. 本地 Docker
 
-进入：
+项目根目录：
+
+```bash
+docker compose up -d --build
+```
+
+当前 Docker 开发端口：
+
+```text
+前端：
+http://localhost:18080
+
+API：
+http://localhost:5108
+
+PostgreSQL：
+localhost:5433
+```
+
+Docker 内部数据库地址仍然是：
+
+```text
+postgres:5432
+```
+
+注意：
+
+> VS2022 / `dotnet run` 与 Docker API 是否看到同一套数据，取决于它们的 `DefaultConnection` 是否连接同一个 PostgreSQL。
+
+停止：
+
+```bash
+docker compose down
+```
+
+不要随意执行：
+
+```bash
+docker compose down -v
+```
+
+`-v` 会删除 PostgreSQL Volume。
+
+---
+
+## 27. EF Core Migration
+
+进入后端：
 
 ```bash
 cd backend/SoftwareServicePlatform.Api
@@ -1144,51 +1017,26 @@ cd backend/SoftwareServicePlatform.Api
 dotnet ef database update
 ```
 
-Visual Studio Package Manager Console 也可以使用：
-
-```powershell
-Update-Database
-```
-
-数据库结构统一通过 EF Core Migration 管理。
-
-当前设备级更新授权已经包含对应 Migration：
+当前重要 Migration 包括：
 
 ```text
 AddClientDeviceActivation
+AddPlatformHardening
 ```
+
+`AddPlatformHardening` 包含：
+
+- 删除旧 `ClientUpdateCredentials`
+- 添加 `CustomerSoftware.MaxDeviceCount`
+- 添加 `ClientInstallation.Remark`
+- 创建 `AuditLogs`
+- 创建 `SystemEventLogs`
+
+应用启动时也会执行尚未应用的 Migration。
 
 ---
 
-## 24. 启动前端
-
-```bash
-cd forntend
-npm install
-npm run dev
-```
-
-默认访问：
-
-```text
-http://localhost:5173
-```
-
-开发环境 Vite 将：
-
-```text
-/api
-```
-
-代理到：
-
-```text
-http://localhost:5108
-```
-
----
-
-## 25. 构建检查
+## 28. 构建检查
 
 ### 后端
 
@@ -1209,19 +1057,15 @@ npm run build
 dotnet build clients/SoftwareServicePlatform.Updater/SoftwareServicePlatform.Updater.csproj
 ```
 
-发布 Windows x64 单文件版本：
+### UpdaterBootstrap
 
 ```bash
-dotnet publish clients/SoftwareServicePlatform.Updater/SoftwareServicePlatform.Updater.csproj \
-  -c Release \
-  -r win-x64 \
-  --self-contained true \
-  -p:PublishSingleFile=true
+dotnet build clients/SoftwareServicePlatform.UpdaterBootstrap/SoftwareServicePlatform.UpdaterBootstrap.csproj
 ```
 
 ---
 
-## 26. Git 开发规范
+## 29. Git 开发规范
 
 主分支：
 
@@ -1229,26 +1073,27 @@ dotnet publish clients/SoftwareServicePlatform.Updater/SoftwareServicePlatform.U
 main
 ```
 
-每个功能、修复、重构或文档更新单独创建分支。
-
-例如：
+独立功能 / 修复 / 重构 / 文档修改均使用独立分支，例如：
 
 ```text
 feature/client-auto-update
-feature/ticket-management
+feature/github-actions-ci
+feature/github-actions-cd
 
 fix/update-download
+fix/frontend-port
 
 refactor/download-service
 
 docs/update-readme
 ```
 
-标准流程：
+推荐流程：
 
 ```bash
 git switch main
-git pull origin main
+git fetch origin
+git pull --ff-only origin main
 
 git switch -c feature/xxx
 
@@ -1257,42 +1102,210 @@ git switch -c feature/xxx
 git status
 git add .
 git commit -m "feat: xxx"
-
 git push -u origin feature/xxx
 ```
 
-然后通过：
+然后：
 
 ```text
 Pull Request
+  ↓
+CI
   ↓
 Review
   ↓
 Merge main
 ```
 
-合并后：
+避免直接在 `main` 上进行功能开发和提交。
 
-```bash
-git switch main
-git pull origin main
-git branch -d feature/xxx
-```
-
-常用 Commit 类型：
+常见 Commit 类型：
 
 ```text
-feat      新功能
-fix       Bug 修复
-refactor  重构
-style     样式
-docs      文档
-chore     工程 / 配置
+feat
+fix
+refactor
+docs
+style
+chore
+ci
 ```
 
 ---
 
-## 27. 当前完成度
+## 30. GitHub Actions CI
+
+当前仓库已经加入：
+
+```text
+.github/workflows/ci.yml
+```
+
+触发场景：
+
+- push 到 `main`
+- push 到 `feature/**`
+- push 到 `fix/**`
+- 针对 `main` 的 Pull Request
+
+CI 自动执行：
+
+```text
+Backend Build
+Frontend Build
+Updater Build
+UpdaterBootstrap Build
+```
+
+主要环境：
+
+```text
+.NET 10
+Node.js 24
+Ubuntu Runner
+Windows Runner
+```
+
+建议将 CI 检查配置为 `main` 分支合并前的必过条件。
+
+---
+
+## 31. 生产部署
+
+生产 Compose：
+
+```text
+compose.prod.yaml
+```
+
+生产结构：
+
+```text
+公网
+  ↓
+Frontend / Nginx :80
+  ↓
+API :8080（Docker 内部）
+  ↓
+PostgreSQL :5432（Docker 内部）
+```
+
+PostgreSQL 不直接暴露公网端口。
+
+API 上传文件目录通过：
+
+```text
+STORAGE_PATH
+```
+
+挂载到：
+
+```text
+/app/storage
+```
+
+DataProtection Key 使用独立 Docker Volume 持久化。
+
+---
+
+## 32. GitHub Actions CD
+
+当前仓库已经加入：
+
+```text
+.github/workflows/deploy.yml
+```
+
+当前生产部署采用：
+
+```text
+手动 Run workflow
+```
+
+而不是每次合并 `main` 后直接自动部署。
+
+部署过程：
+
+```text
+SSH 到 ECS
+  ↓
+拉取最新 origin/main
+  ↓
+生产数据备份
+  ↓
+docker compose up -d --build
+  ↓
+查看容器状态
+  ↓
+GET /api/health
+  ↓
+成功 / 失败结果
+```
+
+GitHub Actions 使用 Repository Secrets，例如：
+
+```text
+ECS_HOST
+ECS_USER
+ECS_SSH_KEY
+```
+
+私钥和服务器敏感配置禁止提交到仓库。
+
+---
+
+## 33. 生产备份与恢复
+
+### 备份
+
+脚本：
+
+```text
+scripts/backup-production.sh
+```
+
+主要备份：
+
+```text
+PostgreSQL database.dump
+storage.tar.gz
+SHA256SUMS.txt
+```
+
+默认备份目录：
+
+```text
+/opt/software-service-platform/backups
+```
+
+生产部署前会执行备份。
+
+### 恢复
+
+脚本：
+
+```text
+scripts/restore-production.sh
+```
+
+恢复会覆盖：
+
+- 当前 PostgreSQL 数据库
+- 当前 `STORAGE_PATH`
+
+脚本要求人工输入：
+
+```text
+RESTORE
+```
+
+确认后才真正执行。
+
+> 数据库恢复属于高风险操作，正式生产环境必须确认备份完整后再执行。
+
+---
+
+## 34. 当前完成度
 
 | 模块 | 状态 |
 | --- | --- |
@@ -1309,20 +1322,22 @@ chore     工程 / 配置
 | 客户软件绑定 | ✅ |
 | 客户门户 | ✅ |
 | 安装包上传 / 下载 | ✅ |
-| 下载记录 | ✅ |
-| 客户端自动更新 | ✅ |
 | 文件级增量更新 | ✅ |
 | 更新激活码 | ✅ |
 | 设备级 UpdateToken | ✅ |
-| 客户更新设备管理 | ✅ |
-| 管理员更新设备授权管理 | ✅ |
-| C# WinForms 更新授权接入 | ✅ |
-| Qt 5.8 更新授权接入 | ✅ |
-| 更新记录上报 | ✅ |
+| 旧共享 UpdateToken 表清理 | ✅ |
+| 设备数量上限 | ✅ |
+| 设备名称 / 备注 | ✅ |
+| 管理员设备授权管理 | ✅ |
+| C# WinForms 接入示例 | ✅ |
+| Qt 5.8 接入示例 | ✅ |
+| 下载 / 更新记录 | ✅ |
 | WinForms GUI Updater | ✅ |
+| UpdaterBootstrap 自更新 | ✅ |
 | SHA256 校验 | ✅ |
-| 更新失败回滚 | ✅ |
+| 客户端更新失败回滚 | ✅ |
 | ZIP 安全限制 | ✅ |
+| 发布前检查 | ✅ |
 | Ticket 工单 | ✅ |
 | 工单附件 / 回复 | ✅ |
 | SLA | ✅ |
@@ -1330,41 +1345,54 @@ chore     工程 / 配置
 | SignalR 实时通知 | ✅ |
 | 通知策略 | ✅ |
 | 钉钉通知基础接入 | ✅ |
-| 正式生产部署 | ⏳ |
-| 更完整的操作审计 | ⏳ |
-| Updater 自更新 | ⏳ |
+| 操作审计 | ✅ |
+| 系统事件记录 | ✅ |
+| 运维中心 | ✅ |
+| `/api/health` | ✅ |
+| Docker 本地环境 | ✅ |
+| Docker 生产环境 | ✅ |
+| PostgreSQL / storage 备份 | ✅ |
+| 生产恢复脚本 | ✅ |
+| GitHub Actions CI | ✅ |
+| GitHub Actions 手动 CD | ✅ |
+| CD 自动代码回滚 | ⏳ |
+| HTTPS | ⏳ |
+| 对象存储 | ⏳ |
+| 日志自动清理 / 保留策略 | ⏳ |
+| 完整自动化测试 | ⏳ |
 
 ---
 
-## 28. 当前不做 / 后续优化
+## 35. 后续方向
 
-当前版本刻意没有把所有需求一次做满。
+当前优先级较高的工程化工作：
 
-后续可根据实际业务继续扩展：
+```text
+CD 部署失败自动回滚
+  ↓
+日志保留与清理
+  ↓
+HTTPS
+  ↓
+对象存储
+  ↓
+自动化测试
+```
 
-- 清理测试阶段保留的旧共享 UpdateToken 兼容逻辑
-- 设备数量上限
-- 设备改名
-- 更新授权操作审计
-- Updater 自更新
-- HTTPS 正式域名与反向代理部署
-- 对象存储 / 文件服务器
-- 操作审计日志
-- Bug 独立管理模块
+业务层后续可继续扩展：
+
+- Bug 独立管理
 - Bug 与修复版本关联
-- 更多外部通知渠道
-- 软件更新灰度策略增强
+- 灰度发布策略增强
 - 客户端在线状态
+- 更多外部通知渠道
 - 更细粒度统计报表
-- 数据备份与恢复策略
-- 自动化测试
-- CI/CD
 
 ---
 
-## 29. 项目目标
+## 36. 项目目标
 
-项目最终希望把原来的：
+项目希望把原来的：
 
 ```text
 微信发软件
@@ -1387,19 +1415,23 @@ chore     工程 / 配置
   ↓
 统一发布
   ↓
-统一更新设备授权
+统一设备更新授权
   ↓
 统一下载 / 自动更新
+  ↓
+统一问题反馈
   ↓
 统一工单
   ↓
 统一通知
   ↓
-完整记录
+统一审计与运维
   ↓
 可追踪
   ↓
 可统计
+  ↓
+可部署
 ```
 
 SoftwareServicePlatform 不只是一个软件下载页面，而是面向软件交付、升级和售后服务全生命周期的管理平台。
@@ -1408,4 +1440,4 @@ SoftwareServicePlatform 不只是一个软件下载页面，而是面向软件�
 
 ## License
 
-当前项目主要用于内部业务开发与技术实践。  
+当前项目主要用于内部业务开发与技术实践。
