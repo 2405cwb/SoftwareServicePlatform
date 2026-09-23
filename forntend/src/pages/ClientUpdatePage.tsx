@@ -1,63 +1,33 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   CheckCircle2,
-  Copy,
   FileArchive,
-  KeyRound,
   RefreshCw,
-  ShieldCheck,
   UploadCloud,
 } from "lucide-react";
 
 import { apiFetch } from "../services/api";
-import { getSessionUser } from "../utils/session";
 import "../styles/client-update.css";
-
-interface UpdateBindingItem {
-  customerSoftwareId: number;
-
-  customerId: number;
-  customerName: string;
-  customerCode: string;
-  customerEnabled: boolean;
-
-  softwareId: number;
-  softwareName: string;
-  softwareCode: string;
-  softwareEnabled: boolean;
-
-  bindingEnabled: boolean;
-
-  credentialExists: boolean;
-  credentialEnabled: boolean;
-
-  tokenPrefix: string | null;
-  tokenCreatedAt: string | null;
-  tokenUpdatedAt: string | null;
-  lastUsedAt: string | null;
-}
 
 interface UpdatePackageItem {
   versionId: number;
-
   softwareId: number;
   softwareName: string;
   softwareCode: string;
-
- version: string;
-versionType: string;
-publishStatus: string;
-
+  version: string;
+  versionType: string;
+  publishStatus: string;
   hasUpdatePackage: boolean;
   fileCount: number;
   totalFileSize: number;
   deleteCount: number;
   generatedAt: string | null;
-
   fullPackageAvailable: boolean;
   fullPackageFileName: string;
   fullPackageFileSize: number;
 }
+
 interface PublishCustomer {
   customerId: number;
   name: string;
@@ -65,454 +35,125 @@ interface PublishCustomer {
   province: string;
   city: string;
 }
-interface GeneratedTokenResult {
-  message: string;
-
-  updateToken: string;
-
-  bindingId: number;
-
-  customerName: string;
-
-  softwareName: string;
-
-  softwareCode: string;
-}
-
-interface UpdateManifestFile {
-  path: string;
-
-  size: number;
-
-  sha256: string;
-}
 
 interface UpdateManifest {
   schemaVersion: number;
-
   softwareId: number;
-
   versionId: number;
-
   version: string;
-
   generatedAt: string;
-
   totalFileSize: number;
-
-  files: UpdateManifestFile[];
-
+  files: Array<{
+    path: string;
+    size: number;
+    sha256: string;
+  }>;
   deletePaths: string[];
 }
 
+interface Preflight {
+  versionId: number;
+  softwareName: string;
+  softwareCode: string;
+  version: string;
+  versionType: string;
+  hasFullPackage: boolean;
+  hasUpdatePackage: boolean;
+  manifestFileCount: number;
+  manifestTotalFileSize: number;
+  manifestDeleteCount: number;
+  containsUpdaterSelfUpdate: boolean;
+  authorizedCustomerCount: number;
+  errors: string[];
+  warnings: string[];
+  canPublish: boolean;
+}
 
-/**
- * 客户端自动更新管理。
- *
- * Admin：
- * - 客户 UpdateToken 管理
- * - 增量更新包管理
- *
- * Developer：
- * - 增量更新包管理
- *
- * 客户端实际检查更新不经过这个页面，
- * 而是调用 /api/client-updates/*
- */
 function ClientUpdatePage() {
-  const currentUser = getSessionUser();
-
-  const isAdmin = currentUser?.role === "Admin";
-
-  const [bindingItems, setBindingItems] = useState<UpdateBindingItem[]>([]);
-
-  const [packageItems, setPackageItems] = useState<UpdatePackageItem[]>([]);
-
+  const [items, setItems] = useState<UpdatePackageItem[]>([]);
   const [loading, setLoading] = useState(true);
-
+  const [keyword, setKeyword] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
-  const [bindingKeyword, setBindingKeyword] = useState("");
+  const [uploadItem, setUploadItem] = useState<UpdatePackageItem | null>(null);
+  const [zipFile, setZipFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
-  const [packageKeyword, setPackageKeyword] = useState("");
+  const [manifest, setManifest] = useState<UpdateManifest | null>(null);
 
-  const [generatedToken, setGeneratedToken] =
-    useState<GeneratedTokenResult | null>(null);
+  const [publishing, setPublishing] = useState<UpdatePackageItem | null>(null);
+  const [preflight, setPreflight] = useState<Preflight | null>(null);
+  const [customers, setCustomers] = useState<PublishCustomer[]>([]);
+  const [publishToAll, setPublishToAll] = useState(true);
+  const [selectedCustomerIds, setSelectedCustomerIds] = useState<number[]>([]);
+  const [isPublishing, setIsPublishing] = useState(false);
 
-  const [savingBindingId, setSavingBindingId] =
-    useState<number | null>(null);
-
-  const [selectedPackageVersion, setSelectedPackageVersion] =
-    useState<UpdatePackageItem | null>(null);
-
-  const [selectedZip, setSelectedZip] =
-    useState<File | null>(null);
-
-  const [uploadingPackage, setUploadingPackage] =
-    useState(false);
-
-  /*
-   * ZIP 从浏览器发送到服务器的上传进度。
-   *
-   * 100% 只代表“浏览器已经发送完”，
-   * 服务端随后还需要解压 ZIP、复制文件并计算 SHA256。
-   */
-  const [uploadProgress, setUploadProgress] =
-    useState(0);
-
-  const [serverProcessing, setServerProcessing] =
-    useState(false);
-
-  const [manifest, setManifest] =
-    useState<UpdateManifest | null>(null);
-
-  const [manifestLoading, setManifestLoading] =
-    useState(false);
-
-const [publishingVersion, setPublishingVersion] =
-  useState<UpdatePackageItem | null>(null);
-
-const [publishCustomers, setPublishCustomers] =
-  useState<PublishCustomer[]>([]);
-
-const [publishToAll, setPublishToAll] =
-  useState(true);
-
-const [selectedCustomerIds, setSelectedCustomerIds] =
-  useState<number[]>([]);
-
-const [isPublishing, setIsPublishing] =
-  useState(false);
-  async function loadData() {
+  async function load() {
     try {
       setLoading(true);
-
       setErrorMessage("");
 
-      const requests: Promise<Response>[] = [
-        apiFetch(
-          "/api/software-version-update-packages",
-        ),
-      ];
+      const response = await apiFetch("/api/software-version-update-packages");
 
-      /*
-       * Developer 不允许查看客户更新 Token。
-       */
-      if (isAdmin) {
-        requests.push(
-          apiFetch(
-            "/api/client-update-admin/bindings",
-          ),
-        );
+      if (!response.ok) {
+        throw new Error((await response.text()) || "加载自动更新包失败");
       }
 
-      const responses =
-        await Promise.all(
-          requests,
-        );
-
-
-      const packageResponse =
-        responses[0];
-
-      if (!packageResponse.ok) {
-        const text =
-          await packageResponse.text();
-
-        throw new Error(
-          text ||
-            `加载自动更新包失败：${packageResponse.status}`,
-        );
-      }
-
-      setPackageItems(
-        (await packageResponse.json()) as
-          UpdatePackageItem[],
-      );
-
-
-      if (isAdmin) {
-        const bindingResponse =
-          responses[1];
-
-        if (!bindingResponse.ok) {
-          const text =
-            await bindingResponse.text();
-
-          throw new Error(
-            text ||
-              `加载更新凭证失败：${bindingResponse.status}`,
-          );
-        }
-
-        setBindingItems(
-          (await bindingResponse.json()) as
-            UpdateBindingItem[],
-        );
-      } else {
-        setBindingItems([]);
-      }
+      setItems((await response.json()) as UpdatePackageItem[]);
     } catch (error) {
-      console.error(
-        "加载客户端自动更新配置失败：",
-        error,
-      );
-
       setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "加载客户端自动更新配置失败",
+        error instanceof Error ? error.message : "加载自动更新包失败",
       );
     } finally {
       setLoading(false);
     }
   }
 
-
   useEffect(() => {
-    void loadData();
+    void load();
   }, []);
 
+  const filtered = useMemo(() => {
+    const value = keyword.trim().toLowerCase();
 
-  const filteredBindings =
-    useMemo(() => {
-      const keyword =
-        bindingKeyword
-          .trim()
-          .toLowerCase();
-
-      if (!keyword) {
-        return bindingItems;
-      }
-
-      return bindingItems.filter(
-        (item) =>
-          item.customerName
-            .toLowerCase()
-            .includes(keyword)
-          ||
-          item.customerCode
-            .toLowerCase()
-            .includes(keyword)
-          ||
-          item.softwareName
-            .toLowerCase()
-            .includes(keyword)
-          ||
-          item.softwareCode
-            .toLowerCase()
-            .includes(keyword),
-      );
-    }, [
-      bindingItems,
-      bindingKeyword,
-    ]);
-
-
-  const filteredPackages =
-    useMemo(() => {
-      const keyword =
-        packageKeyword
-          .trim()
-          .toLowerCase();
-
-      if (!keyword) {
-        return packageItems;
-      }
-
-      return packageItems.filter(
-        (item) =>
-          item.softwareName
-            .toLowerCase()
-            .includes(keyword)
-          ||
-          item.softwareCode
-            .toLowerCase()
-            .includes(keyword)
-          ||
-          item.version
-            .toLowerCase()
-            .includes(keyword)
-          ||
-          item.publishStatus
-            .toLowerCase()
-            .includes(keyword),
-      );
-    }, [
-      packageItems,
-      packageKeyword,
-    ]);
-
-
-  async function generateToken(
-    item: UpdateBindingItem,
-  ) {
-    const reset =
-      item.credentialExists;
-
-    if (
-      reset
-      &&
-      !window.confirm(
-        `确定重新生成 ${item.customerName} / ${item.softwareName} 的更新密钥吗？\n\n原密钥会立即失效。`,
-      )
-    ) {
-      return;
+    if (!value) {
+      return items;
     }
 
-    try {
-      setSavingBindingId(
-        item.customerSoftwareId,
-      );
+    return items.filter(
+      (item) =>
+        item.softwareName.toLowerCase().includes(value) ||
+        item.softwareCode.toLowerCase().includes(value) ||
+        item.version.toLowerCase().includes(value),
+    );
+  }, [items, keyword]);
 
-      const response =
-        await apiFetch(
-          `/api/client-update-admin/bindings/${item.customerSoftwareId}/token`,
-          {
-            method: "POST",
-          },
-        );
-
-      if (!response.ok) {
-        const text =
-          await response.text();
-
-        throw new Error(
-          text ||
-            `生成更新密钥失败：${response.status}`,
-        );
-      }
-
-      const result =
-        (await response.json()) as
-          GeneratedTokenResult;
-
-      setGeneratedToken(
-        result,
-      );
-
-      await loadData();
-    } catch (error) {
-      console.error(
-        "生成更新密钥失败：",
-        error,
-      );
-
-      alert(
-        error instanceof Error
-          ? error.message
-          : "生成更新密钥失败",
-      );
-    } finally {
-      setSavingBindingId(
-        null,
-      );
+  function formatSize(bytes: number) {
+    if (!bytes) {
+      return "-";
     }
+
+    const mb = bytes / 1024 / 1024;
+
+    return mb < 1024
+      ? `${mb.toFixed(1)} MB`
+      : `${(mb / 1024).toFixed(2)} GB`;
   }
 
-
-  async function setCredentialEnabled(
-    item: UpdateBindingItem,
-    enabled: boolean,
-  ) {
-    const action =
-      enabled
-        ? "enable"
-        : "revoke";
-
-    try {
-      setSavingBindingId(
-        item.customerSoftwareId,
-      );
-
-      const response =
-        await apiFetch(
-          `/api/client-update-admin/bindings/${item.customerSoftwareId}/${action}`,
-          {
-            method: "POST",
-          },
-        );
-
-      if (!response.ok) {
-        const text =
-          await response.text();
-
-        throw new Error(
-          text ||
-            `修改更新凭证状态失败：${response.status}`,
-        );
-      }
-
-      await loadData();
-    } catch (error) {
-      console.error(
-        "修改更新凭证状态失败：",
-        error,
-      );
-
-      alert(
-        error instanceof Error
-          ? error.message
-          : "修改更新凭证状态失败",
-      );
-    } finally {
-      setSavingBindingId(
-        null,
-      );
-    }
-  }
-
-
-  async function copyToken() {
-    if (!generatedToken) {
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(
-        generatedToken.updateToken,
-      );
-
-      alert(
-        "更新密钥已复制",
-      );
-    } catch {
-      alert(
-        "浏览器未允许自动复制，请手工选中复制",
-      );
-    }
-  }
-
-
-  /*
-   * ==========================================
-   * 带上传进度的 ZIP 上传
-   * ==========================================
-   *
-   * 这里不用 apiFetch，原因和现有版本安装包上传一致：
-   * fetch 没有稳定的 upload progress 事件，
-   * 所以使用 XMLHttpRequest。
-   *
-   * JWT 仍然从 sessionStorage 读取并放入 Authorization。
-   */
-  function uploadUpdateZipWithProgress(
-    versionId: number,
-    file: File,
-  ): Promise<void> {
-    return new Promise((resolve, reject) => {
+  function uploadWithProgress(versionId: number, file: File) {
+    return new Promise<void>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
+      const form = new FormData();
 
-      const formData = new FormData();
-      formData.append("file", file);
+      form.append("file", file);
 
       xhr.open(
         "POST",
         `/api/software-version-update-packages/${versionId}`,
       );
 
-      const token = sessionStorage.getItem(
-        "access_token",
-      );
+      const token = sessionStorage.getItem("access_token");
 
       if (token) {
         xhr.setRequestHeader(
@@ -526,116 +167,95 @@ const [isPublishing, setIsPublishing] =
           return;
         }
 
-        const percent = Math.round(
-          (event.loaded / event.total) * 100,
+        setUploadProgress(
+          Math.round(
+            (event.loaded / event.total) * 100,
+          ),
         );
-
-        setUploadProgress(percent);
-
-        if (percent >= 100) {
-          setServerProcessing(true);
-        }
       };
 
       xhr.onload = () => {
-        setServerProcessing(false);
-
-        if (
-          xhr.status >= 200
-          && xhr.status < 300
-        ) {
+        if (xhr.status >= 200 && xhr.status < 300) {
           resolve();
           return;
         }
 
         reject(
           new Error(
-            xhr.responseText
-            || `上传更新包失败：${xhr.status}`,
+            xhr.responseText ||
+              `上传失败：${xhr.status}`,
           ),
         );
       };
 
-      xhr.onerror = () => {
-        setServerProcessing(false);
-        reject(new Error("网络错误，更新 ZIP 上传失败"));
-      };
+      xhr.onerror = () =>
+        reject(
+          new Error(
+            "网络错误，更新 ZIP 上传失败",
+          ),
+        );
 
-      xhr.onabort = () => {
-        setServerProcessing(false);
-        reject(new Error("更新 ZIP 上传已取消"));
-      };
-
-      xhr.send(formData);
+      xhr.send(form);
     });
   }
 
-
-  async function uploadUpdatePackage() {
-    if (!selectedPackageVersion) {
-      return;
-    }
-
-    if (!selectedZip) {
-      alert(
-        "请选择 ZIP 更新包",
-      );
-
+  async function uploadPackage() {
+    if (!uploadItem || !zipFile) {
       return;
     }
 
     try {
-      setUploadingPackage(
-        true,
-      );
-
+      setUploading(true);
       setUploadProgress(0);
-      setServerProcessing(false);
 
-      await uploadUpdateZipWithProgress(
-        selectedPackageVersion.versionId,
-        selectedZip,
+      await uploadWithProgress(
+        uploadItem.versionId,
+        zipFile,
       );
 
-      setUploadProgress(100);
+      alert("自动更新包生成成功");
 
-      alert(
-        "增量更新包生成成功",
-      );
+      setUploadItem(null);
+      setZipFile(null);
 
-      setSelectedPackageVersion(
-        null,
-      );
-
-      setSelectedZip(
-        null,
-      );
-
-      await loadData();
+      await load();
     } catch (error) {
-      console.error(
-        "上传自动更新包失败：",
-        error,
-      );
-
       alert(
         error instanceof Error
           ? error.message
-          : "上传自动更新包失败",
+          : "上传失败",
       );
     } finally {
-      setUploadingPackage(
-        false,
-      );
-
-      setServerProcessing(false);
+      setUploading(false);
     }
   }
 
+  async function openManifest(item: UpdatePackageItem) {
+    try {
+      const response = await apiFetch(
+        `/api/software-version-update-packages/${item.versionId}`,
+      );
 
-  async function deleteUpdatePackage(
-    item: UpdatePackageItem,
-  ) {
+      if (!response.ok) {
+        throw new Error(
+          (await response.text()) ||
+            "读取文件清单失败",
+        );
+      }
+
+      setManifest(
+        (await response.json()) as UpdateManifest,
+      );
+    } catch (error) {
+      alert(
+        error instanceof Error
+          ? error.message
+          : "读取文件清单失败",
+      );
+    }
+  }
+
+  async function deletePackage(item: UpdatePackageItem) {
     if (
       !window.confirm(
         `确定删除 ${item.softwareName} ${item.version} 的自动更新包吗？`,
@@ -644,981 +264,468 @@ const [isPublishing, setIsPublishing] =
       return;
     }
 
-    try {
-      const response =
-        await apiFetch(
-          `/api/software-version-update-packages/${item.versionId}`,
-          {
-            method: "DELETE",
-          },
-        );
-
-      if (!response.ok) {
-        const text =
-          await response.text();
-
-        throw new Error(
-          text ||
-            `删除更新包失败：${response.status}`,
-        );
-      }
-
-      await loadData();
-    } catch (error) {
-      console.error(
-        "删除自动更新包失败：",
-        error,
-      );
-
-      alert(
-        error instanceof Error
-          ? error.message
-          : "删除自动更新包失败",
-      );
-    }
-  }
-
-
-  async function openManifest(
-    item: UpdatePackageItem,
-  ) {
-    try {
-      setManifestLoading(
-        true,
-      );
-
-      setManifest(
-        null,
-      );
-
-      const response =
-        await apiFetch(
-          `/api/software-version-update-packages/${item.versionId}`,
-        );
-
-      if (!response.ok) {
-        const text =
-          await response.text();
-
-        throw new Error(
-          text ||
-            `读取文件清单失败：${response.status}`,
-        );
-      }
-
-      setManifest(
-        (await response.json()) as
-          UpdateManifest,
-      );
-    } catch (error) {
-      console.error(
-        "读取更新清单失败：",
-        error,
-      );
-
-      alert(
-        error instanceof Error
-          ? error.message
-          : "读取更新清单失败",
-      );
-    } finally {
-      setManifestLoading(
-        false,
-      );
-    }
-  }
-async function openPublishDialog(
-  item: UpdatePackageItem,
-) {
-  if (item.versionType === "Dev") {
-    alert(
-      "Dev 版本仅供内部使用，不能发布给客户",
+    const response = await apiFetch(
+      `/api/software-version-update-packages/${item.versionId}`,
+      {
+        method: "DELETE",
+      },
     );
-
-    return;
-  }
-
-  try {
-    const response =
-      await apiFetch(
-        `/api/softwareversions/${item.versionId}/publish-customers`,
-      );
 
     if (!response.ok) {
-      const text =
-        await response.text();
-
-      throw new Error(
-        text ||
-          `获取发布客户失败：${response.status}`,
+      alert(
+        (await response.text()) ||
+          "删除更新包失败",
       );
+      return;
     }
 
-    const customers =
-      (await response.json()) as
-        PublishCustomer[];
-
-    setPublishCustomers(
-      customers,
-    );
-
-    setPublishingVersion(
-      item,
-    );
-
-    /*
-     * Beta 只能指定客户。
-     * Release 默认全部授权客户。
-     */
-    if (item.versionType === "Beta") {
-      setPublishToAll(
-        false,
-      );
-    } else {
-      setPublishToAll(
-        true,
-      );
-    }
-
-    setSelectedCustomerIds(
-      [],
-    );
-  } catch (error) {
-    console.error(
-      "获取发布客户失败：",
-      error,
-    );
-
-    alert(
-      error instanceof Error
-        ? error.message
-        : "获取发布客户失败",
-    );
+    await load();
   }
-}
 
+  async function openPublish(item: UpdatePackageItem) {
+    try {
+      const [checkResponse, customerResponse] =
+        await Promise.all([
+          apiFetch(
+            `/api/release-preflight/${item.versionId}`,
+          ),
+          apiFetch(
+            `/api/softwareversions/${item.versionId}/publish-customers`,
+          ),
+        ]);
 
-function togglePublishCustomer(
-  customerId: number,
-) {
-  setSelectedCustomerIds(
-    (current) =>
-      current.includes(customerId)
+      if (!checkResponse.ok) {
+        throw new Error(
+          (await checkResponse.text()) ||
+            "发布前检查失败",
+        );
+      }
+
+      if (!customerResponse.ok) {
+        throw new Error(
+          (await customerResponse.text()) ||
+            "读取发布客户失败",
+        );
+      }
+
+      const check =
+        (await checkResponse.json()) as Preflight;
+
+      setPreflight(check);
+
+      if (!check.canPublish) {
+        alert(
+          "发布前检查未通过：\n\n"
+            + check.errors.join("\n"),
+        );
+        return;
+      }
+
+      setCustomers(
+        (await customerResponse.json()) as
+          PublishCustomer[],
+      );
+
+      setPublishing(item);
+
+      setPublishToAll(
+        item.versionType !== "Beta",
+      );
+
+      setSelectedCustomerIds([]);
+    } catch (error) {
+      alert(
+        error instanceof Error
+          ? error.message
+          : "发布前检查失败",
+      );
+    }
+  }
+
+  function toggleCustomer(id: number) {
+    setSelectedCustomerIds((current) =>
+      current.includes(id)
         ? current.filter(
-            (id) =>
-              id !== customerId,
+            (value) => value !== id,
           )
-        : [
-            ...current,
-            customerId,
-          ],
-  );
-}
-
-
-async function confirmPublishVersion() {
-  if (!publishingVersion) {
-    return;
+        : [...current, id],
+    );
   }
 
-  if (
-    !publishToAll
-    &&
-    selectedCustomerIds.length === 0
-  ) {
-    alert(
-      "请选择至少一个发布客户",
-    );
+  async function confirmPublish() {
+    if (!publishing || !preflight) {
+      return;
+    }
 
-    return;
-  }
+    if (
+      !publishToAll
+      && selectedCustomerIds.length === 0
+    ) {
+      alert("请选择至少一个发布客户");
+      return;
+    }
 
-  try {
-    setIsPublishing(
-      true,
-    );
+    const customerCount =
+      publishToAll
+        ? customers.length
+        : selectedCustomerIds.length;
 
-    const response =
-      await apiFetch(
-        `/api/softwareversions/${publishingVersion.versionId}/publish`,
+    const warningText =
+      preflight.warnings.length > 0
+        ? "\n\n警告：\n"
+          + preflight.warnings.join("\n")
+        : "";
+
+    if (
+      !window.confirm(
+        `即将发布：\n`
+          + `${publishing.softwareName} ${publishing.version}\n`
+          + `影响客户：${customerCount} 家\n`
+          + `更新文件：${preflight.manifestFileCount} 个`
+          + warningText
+          + "\n\n确认发布吗？",
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setIsPublishing(true);
+
+      const response = await apiFetch(
+        `/api/softwareversions/${publishing.versionId}/publish`,
         {
           method: "POST",
-
           headers: {
             "Content-Type":
               "application/json",
           },
-
           body: JSON.stringify({
-            publishToAll:
-              publishToAll,
-
+            publishToAll,
             customerIds:
               selectedCustomerIds,
           }),
         },
       );
 
-    if (!response.ok) {
-      const text =
-        await response.text();
+      if (!response.ok) {
+        const text =
+          await response.text();
 
-      throw new Error(
-        text ||
-          `发布失败：${response.status}`,
+        let message = text;
+
+        try {
+          const json = JSON.parse(text) as {
+            message?: string;
+            errors?: string[];
+          };
+
+          if (
+            json.errors
+            && json.errors.length > 0
+          ) {
+            message =
+              `${json.message || "发布失败"}：\n`
+              + json.errors.join("\n");
+          }
+        } catch {
+          // 普通字符串响应直接显示。
+        }
+
+        throw new Error(
+          message || "发布失败",
+        );
+      }
+
+      alert(
+        `${publishing.softwareName} ${publishing.version} 发布成功`,
       );
+
+      setPublishing(null);
+      setPreflight(null);
+      setCustomers([]);
+      setSelectedCustomerIds([]);
+
+      await load();
+    } catch (error) {
+      alert(
+        error instanceof Error
+          ? error.message
+          : "发布失败",
+      );
+    } finally {
+      setIsPublishing(false);
     }
-
-    const customerCount =
-      publishToAll
-        ? publishCustomers.length
-        : selectedCustomerIds.length;
-
-    alert(
-      `${publishingVersion.softwareName} ${publishingVersion.version} 发布成功。\n\n`
-      + `已发布给 ${customerCount} 家客户，客户端现在可以检测到该版本。`,
-    );
-
-    setPublishingVersion(
-      null,
-    );
-
-    setPublishCustomers(
-      [],
-    );
-
-    setSelectedCustomerIds(
-      [],
-    );
-
-    await loadData();
-  } catch (error) {
-    console.error(
-      "发布版本失败：",
-      error,
-    );
-
-    alert(
-      error instanceof Error
-        ? error.message
-        : "发布版本失败",
-    );
-  } finally {
-    setIsPublishing(
-      false,
-    );
   }
-}
-
-  function formatFileSize(
-    value: number,
-  ) {
-    if (value <= 0) {
-      return "0 B";
-    }
-
-    if (
-      value
-      < 1024 * 1024
-    ) {
-      return `${(
-        value / 1024
-      ).toFixed(1)} KB`;
-    }
-
-    if (
-      value
-      < 1024 * 1024 * 1024
-    ) {
-      return `${(
-        value /
-        1024 /
-        1024
-      ).toFixed(1)} MB`;
-    }
-
-    return `${(
-      value /
-      1024 /
-      1024 /
-      1024
-    ).toFixed(2)} GB`;
-  }
-
-
-  function formatDate(
-    value: string | null,
-  ) {
-    if (!value) {
-      return "-";
-    }
-
-    return new Date(
-      value,
-    ).toLocaleString(
-      "zh-CN",
-    );
-  }
-
 
   return (
-    <div className="content client-update-page">
-      <div className="client-update-header">
+    <div className="content u-page">
+      <header className="u-page-header">
         <div>
-          <h2>
-            <RefreshCw size={24} />
-            客户端自动更新
-          </h2>
+          <span className="u-eyebrow">
+            CLIENT UPDATE
+          </span>
+
+          <h2>客户端更新</h2>
 
           <p>
-            管理客户更新密钥、目标版本 ZIP、文件 SHA256 清单和增量更新能力
+            管理目标版本更新 ZIP、查看文件清单并发布版本。
+            旧版共享 UpdateToken 已停用，设备授权请使用“更新设备授权”。
           </p>
         </div>
 
         <button
           type="button"
           className="normal-button"
-          disabled={loading}
-          onClick={() =>
-            void loadData()
-          }
+          onClick={() => void load()}
         >
-          <RefreshCw size={15} />
+          <RefreshCw size={16} />
           刷新
         </button>
-      </div>
+      </header>
 
+      <section className="u-panel">
+        <input
+          value={keyword}
+          onChange={(event) =>
+            setKeyword(event.target.value)
+          }
+          placeholder="搜索软件或版本"
+          style={{
+            width: "100%",
+            maxWidth: 480,
+            height: 38,
+            padding: "0 12px",
+            marginBottom: 16,
+          }}
+        />
 
-      <div className="client-update-intro">
-        <ShieldCheck size={21} />
-
-        <div>
-          <strong>
-            文件级增量更新
-          </strong>
-
-          <span>
-            客户端比较本地文件与目标版本 SHA256，只下载变化文件；完整安装包继续作为失败兜底。
-          </span>
-        </div>
-      </div>
-
-
-      {errorMessage && (
-        <div className="download-record-error">
-          {errorMessage}
-        </div>
-      )}
-
-
-      {isAdmin && (
-        <section className="client-update-section">
-          <div className="client-update-section-title">
-            <div>
-              <h3>
-                <KeyRound size={18} />
-                客户更新密钥
-              </h3>
-
-              <p>
-                每个“客户 + 软件”一套独立 Token。数据库只保存 SHA256，明文只显示一次。
-              </p>
-            </div>
-
-            <input
-              className="client-update-search"
-              value={bindingKeyword}
-              placeholder="搜索客户或软件"
-              onChange={(event) =>
-                setBindingKeyword(
-                  event.target.value,
-                )
-              }
-            />
+        {loading ? (
+          <div>正在加载...</div>
+        ) : errorMessage ? (
+          <div className="u-error-card">
+            {errorMessage}
           </div>
+        ) : (
+          <div
+            style={{
+              display: "grid",
+              gap: 12,
+            }}
+          >
+            {filtered.map((item) => (
+              <div
+                key={item.versionId}
+                style={{
+                  border:
+                    "1px solid #e2e8f0",
+                  borderRadius: 12,
+                  padding: 16,
+                  display: "grid",
+                  gridTemplateColumns:
+                    "minmax(240px,1.5fr) minmax(220px,1fr) auto",
+                  gap: 18,
+                  alignItems: "center",
+                }}
+              >
+                <div>
+                  <strong>
+                    {item.softwareName} ·{" "}
+                    {item.version}
+                  </strong>
 
+                  <div
+                    style={{
+                      fontSize: 13,
+                      color: "#64748b",
+                      marginTop: 5,
+                    }}
+                  >
+                    {item.softwareCode} ·{" "}
+                    {item.versionType} ·{" "}
+                    {item.publishStatus}
+                  </div>
+                </div>
 
-          <div className="client-update-table-wrap">
-            <table className="client-update-table">
-              <thead>
-                <tr>
-                  <th>客户</th>
-                  <th>软件</th>
-                  <th>授权</th>
-                  <th>更新密钥</th>
-                  <th>最后使用</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
+                <div
+                  style={{
+                    fontSize: 13,
+                    lineHeight: 1.8,
+                  }}
+                >
+                  <div>
+                    更新 ZIP：
+                    {item.hasUpdatePackage
+                      ? `${item.fileCount} 文件 / ${formatSize(item.totalFileSize)}`
+                      : "未上传"}
+                  </div>
 
-              <tbody>
-                {filteredBindings.map(
-                  (item) => {
-                    const available =
-                      item.bindingEnabled
-                      &&
-                      item.customerEnabled
-                      &&
-                      item.softwareEnabled;
+                  <div>
+                    完整安装包：
+                    {item.fullPackageAvailable
+                      ? item.fullPackageFileName
+                        || "已上传"
+                      : "未上传"}
+                  </div>
+                </div>
 
-                    return (
-                      <tr
-                        key={
-                          item.customerSoftwareId
-                        }
-                      >
-                        <td>
-                          <strong>
-                            {item.customerName}
-                          </strong>
-
-                          <small>
-                            {item.customerCode}
-                          </small>
-                        </td>
-
-                        <td>
-                          <strong>
-                            {item.softwareName}
-                          </strong>
-
-                          <small>
-                            {item.softwareCode}
-                          </small>
-                        </td>
-
-                        <td>
-                          <span
-                            className={
-                              available
-                                ? "client-update-badge is-ready"
-                                : "client-update-badge is-off"
-                            }
-                          >
-                            {available
-                              ? "有效"
-                              : "停用"}
-                          </span>
-                        </td>
-
-                        <td>
-                          {!item.credentialExists ? (
-                            <span className="client-update-badge is-warn">
-                              未生成
-                            </span>
-                          ) : (
-                            <>
-                              <span
-                                className={
-                                  item.credentialEnabled
-                                    ? "client-update-badge is-ready"
-                                    : "client-update-badge is-off"
-                                }
-                              >
-                                {item.credentialEnabled
-                                  ? "已启用"
-                                  : "已停用"}
-                              </span>
-
-                              <small>
-                                {item.tokenPrefix || "-"}
-                              </small>
-                            </>
-                          )}
-                        </td>
-
-                        <td>
-                          {formatDate(
-                            item.lastUsedAt,
-                          )}
-                        </td>
-
-                        <td>
-                          <div className="table-actions">
-                            <button
-                              type="button"
-                              className="normal-button"
-                              disabled={
-                                !available
-                                ||
-                                savingBindingId
-                                  ===
-                                  item.customerSoftwareId
-                              }
-                              onClick={() =>
-                                void generateToken(
-                                  item,
-                                )
-                              }
-                            >
-                              {item.credentialExists
-                                ? "重置密钥"
-                                : "生成密钥"}
-                            </button>
-
-                            {item.credentialExists
-                              &&
-                              item.credentialEnabled && (
-                                <button
-                                  type="button"
-                                  className="normal-button"
-                                  disabled={
-                                    savingBindingId
-                                      ===
-                                      item.customerSoftwareId
-                                  }
-                                  onClick={() =>
-                                    void setCredentialEnabled(
-                                      item,
-                                      false,
-                                    )
-                                  }
-                                >
-                                  停用
-                                </button>
-                              )}
-
-                            {item.credentialExists
-                              &&
-                              !item.credentialEnabled && (
-                                <button
-                                  type="button"
-                                  className="normal-button"
-                                  disabled={
-                                    !available
-                                    ||
-                                    savingBindingId
-                                      ===
-                                      item.customerSoftwareId
-                                  }
-                                  onClick={() =>
-                                    void setCredentialEnabled(
-                                      item,
-                                      true,
-                                    )
-                                  }
-                                >
-                                  启用
-                                </button>
-                              )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  },
-                )}
-
-                {filteredBindings.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={6}
-                      className="client-update-empty"
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  {item.publishStatus ===
+                    "Draft"
+                    && item.versionType
+                      !== "Dev" && (
+                    <button
+                      type="button"
+                      className="normal-button"
+                      onClick={() => {
+                        setUploadItem(item);
+                        setZipFile(null);
+                        setUploadProgress(0);
+                      }}
                     >
-                      暂无符合条件的客户软件绑定
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                      <UploadCloud
+                        size={15}
+                      />
+                      上传更新 ZIP
+                    </button>
+                  )}
+
+                  {item.hasUpdatePackage && (
+                    <button
+                      type="button"
+                      className="normal-button"
+                      onClick={() =>
+                        void openManifest(
+                          item,
+                        )
+                      }
+                    >
+                      <FileArchive
+                        size={15}
+                      />
+                      查看清单
+                    </button>
+                  )}
+
+                  {item.hasUpdatePackage
+                    && item.publishStatus
+                      === "Draft" && (
+                    <button
+                      type="button"
+                      className="delete-button"
+                      onClick={() =>
+                        void deletePackage(
+                          item,
+                        )
+                      }
+                    >
+                      删除更新包
+                    </button>
+                  )}
+
+                  {item.publishStatus ===
+                    "Draft"
+                    && item.versionType
+                      !== "Dev" && (
+                    <button
+                      type="button"
+                      className="primary-button"
+                      onClick={() =>
+                        void openPublish(
+                          item,
+                        )
+                      }
+                    >
+                      <CheckCircle2
+                        size={15}
+                      />
+                      发布前检查
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
-        </section>
-      )}
+        )}
+      </section>
 
-
-      <section className="client-update-section">
-        <div className="client-update-section-title">
-          <div>
+      {uploadItem && (
+        <div className="version-attachment-mask">
+          <div
+            className="version-attachment-dialog"
+            style={{ maxWidth: 600 }}
+          >
             <h3>
-              <FileArchive size={18} />
-              自动更新包
+              上传自动更新 ZIP ·{" "}
+              {uploadItem.softwareName}{" "}
+              {uploadItem.version}
             </h3>
 
             <p>
-              草稿版本上传目标版本完整目录 ZIP。发布后更新包锁定，不允许再修改。
+              ZIP 应包含目标版本完整运行目录。
+              如需同时升级更新器，把新版
+              <code>
+                {" "}
+                SoftwareServicePlatform.Updater.exe{" "}
+              </code>
+              放入
+              <code>
+                {" "}
+                .updater-self/{" "}
+              </code>
+              目录。
             </p>
-          </div>
-
-          <input
-            className="client-update-search"
-            value={packageKeyword}
-            placeholder="搜索软件或版本"
-            onChange={(event) =>
-              setPackageKeyword(
-                event.target.value,
-              )
-            }
-          />
-        </div>
-
-
-        <div className="client-update-package-tip">
-          ZIP 内可放
-          <code>.update-ignore.txt</code>
-          排除客户配置/日志；
-          <code>.update-delete.txt</code>
-          声明升级后需要删除的旧文件。
-          <code>updater/</code>
-          和
-          <code>version.txt</code>
-          默认不会被更新包覆盖。
-        </div>
-
-
-        <div className="client-update-table-wrap">
-          <table className="client-update-table">
-            <thead>
-              <tr>
-                <th>软件</th>
-                <th>版本</th>
-                <th>发布状态</th>
-                <th>增量包</th>
-                <th>完整安装包</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {filteredPackages.map(
-                (item) => (
-                  <tr
-                    key={
-                      item.versionId
-                    }
-                  >
-                    <td>
-                      <strong>
-                        {item.softwareName}
-                      </strong>
-
-                      <small>
-                        {item.softwareCode}
-                      </small>
-                    </td>
-
-                 <td>
-  <strong>
-    {item.version}
-  </strong>
-
-  <small>
-    {item.versionType}
-  </small>
-</td>
-
-                    <td>
-                      {item.publishStatus}
-                    </td>
-
-                    <td>
-                      {item.hasUpdatePackage ? (
-                        <>
-                          <span className="client-update-badge is-ready">
-                            已生成
-                          </span>
-
-                          <small>
-                            {item.fileCount} 个文件 ·{" "}
-                            {formatFileSize(
-                              item.totalFileSize,
-                            )}
-                            {item.deleteCount > 0
-                              ? ` · 删除 ${item.deleteCount}`
-                              : ""}
-                          </small>
-                        </>
-                      ) : (
-                        <span className="client-update-badge is-warn">
-                          未上传
-                        </span>
-                      )}
-                    </td>
-
-                    <td>
-                      {item.fullPackageAvailable ? (
-                        <>
-                          <span className="client-update-badge is-ready">
-                            已有
-                          </span>
-
-                          <small>
-                            {item.fullPackageFileName || "-"}
-                          </small>
-                        </>
-                      ) : (
-                        <span className="client-update-badge is-off">
-                          无
-                        </span>
-                      )}
-                    </td>
-
-                    <td>
-                      <div className="table-actions">
-                        {item.publishStatus === "Draft" && (
-                          <button
-                            type="button"
-                            className="normal-button"
-                            onClick={() => {
-                              setSelectedPackageVersion(
-                                item,
-                              );
-
-                              setSelectedZip(
-                                null,
-                              );
-
-                              setUploadProgress(0);
-                              setServerProcessing(false);
-                            }}
-                          >
-                            <UploadCloud size={14} />
-                            {item.hasUpdatePackage
-                              ? "更换 ZIP"
-                              : "上传 ZIP"}
-                          </button>
-                        )}
-
-                        {item.hasUpdatePackage && (
-                          <button
-                            type="button"
-                            className="normal-button"
-                            disabled={
-                              manifestLoading
-                            }
-                            onClick={() =>
-                              void openManifest(
-                                item,
-                              )
-                            }
-                          >
-                            查看清单
-                          </button>
-                        )}
-                        {item.publishStatus === "Draft"
-  &&
-  item.hasUpdatePackage
-  &&
-  item.versionType !== "Dev" && (
-    <button
-      type="button"
-      className="primary-button"
-      onClick={() =>
-        void openPublishDialog(
-          item,
-        )
-      }
-    >
-      发布
-    </button>
-  )}
-
-                        {item.publishStatus === "Draft"
-                          &&
-                          item.hasUpdatePackage && (
-                            <button
-                              type="button"
-                              className="delete-button"
-                              onClick={() =>
-                                void deleteUpdatePackage(
-                                  item,
-                                )
-                              }
-                            >
-                              删除
-                            </button>
-                          )}
-                      </div>
-                    </td>
-                  </tr>
-                ),
-              )}
-
-              {filteredPackages.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={6}
-                    className="client-update-empty"
-                  >
-                    暂无符合条件的软件版本
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-
-      {generatedToken && (
-        <div className="version-attachment-mask">
-          <div className="client-update-dialog">
-            <div className="client-update-dialog-title">
-              <CheckCircle2 size={22} />
-
-              <div>
-                <h3>
-                  更新密钥已生成
-                </h3>
-
-                <p>
-                  {generatedToken.customerName}
-                  {" · "}
-                  {generatedToken.softwareName}
-                </p>
-              </div>
-            </div>
-
-            <div className="client-update-secret-warning">
-              完整 Token 只显示这一次。关闭后服务器无法恢复明文，如遗失只能重新生成。
-            </div>
-
-            <label>
-              SoftwareCode
-            </label>
-
-            <input
-              readOnly
-              value={
-                generatedToken.softwareCode
-              }
-            />
-
-            <label>
-              UpdateToken
-            </label>
-
-            <textarea
-              readOnly
-              value={
-                generatedToken.updateToken
-              }
-            />
-
-            <div className="form-buttons">
-              <button
-                type="button"
-                className="primary-button"
-                onClick={() =>
-                  void copyToken()
-                }
-              >
-                <Copy size={15} />
-                复制 Token
-              </button>
-
-              <button
-                type="button"
-                className="normal-button"
-                onClick={() =>
-                  setGeneratedToken(
-                    null,
-                  )
-                }
-              >
-                已保存，关闭
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-
-      {selectedPackageVersion && (
-        <div className="version-attachment-mask">
-          <div className="client-update-dialog">
-            <div className="client-update-dialog-title">
-              <UploadCloud size={22} />
-
-              <div>
-                <h3>
-                  上传目标版本目录 ZIP
-                </h3>
-
-                <p>
-                  {selectedPackageVersion.softwareName}
-                  {" · "}
-                  {selectedPackageVersion.version}
-                </p>
-              </div>
-            </div>
-
-            <div className="client-update-secret-warning">
-              ZIP 应包含这个版本实际运行目录的完整文件状态。服务端会自动计算 SHA256，客户端只下载变化文件。
-            </div>
 
             <input
               type="file"
               accept=".zip,application/zip"
-              disabled={uploadingPackage}
-              onChange={(event) => {
-                setSelectedZip(
+              onChange={(event) =>
+                setZipFile(
                   event.target.files?.[0]
-                  ?? null,
-                );
-
-                setUploadProgress(0);
-                setServerProcessing(false);
-              }}
+                    ?? null,
+                )
+              }
             />
 
-            {uploadingPackage && (
-              <div className="client-update-upload-progress">
-                <div className="client-update-progress-track">
-                  <div
-                    className="client-update-progress-value"
-                    style={{
-                      width: `${uploadProgress}%`,
-                    }}
-                  />
-                </div>
-
-                <div className="client-update-progress-text">
-                  {uploadProgress < 100
-                    ? `正在上传：${uploadProgress}%`
-                    : serverProcessing
-                      ? "上传完成，服务器正在解压并计算 SHA256..."
-                      : "正在完成更新包生成..."}
-                </div>
-              </div>
+            {uploading && (
+              <p>
+                上传进度：
+                {uploadProgress}%
+              </p>
             )}
 
-            <div className="form-buttons">
+            <div
+              className="form-buttons"
+              style={{ marginTop: 18 }}
+            >
               <button
                 type="button"
                 className="primary-button"
                 disabled={
-                  !selectedZip
-                  ||
-                  uploadingPackage
+                  !zipFile || uploading
                 }
                 onClick={() =>
-                  void uploadUpdatePackage()
+                  void uploadPackage()
                 }
               >
-                {uploadingPackage
-                  ? uploadProgress < 100
-                    ? `上传中 ${uploadProgress}%`
-                    : "处理中..."
+                {uploading
+                  ? "上传中..."
                   : "上传并生成更新包"}
               </button>
 
               <button
                 type="button"
                 className="normal-button"
-                disabled={
-                  uploadingPackage
+                disabled={uploading}
+                onClick={() =>
+                  setUploadItem(null)
                 }
-                onClick={() => {
-                  setSelectedPackageVersion(
-                    null,
-                  );
-
-                  setSelectedZip(
-                    null,
-                  );
-
-                  setUploadProgress(0);
-                  setServerProcessing(false);
-                }}
               >
                 取消
               </button>
@@ -1627,301 +734,243 @@ async function confirmPublishVersion() {
         </div>
       )}
 
-
-      {(manifest || manifestLoading) && (
+      {manifest && (
         <div className="version-attachment-mask">
-          <div className="client-update-dialog client-update-manifest-dialog">
-            <div className="client-update-dialog-title">
-              <FileArchive size={22} />
-
+          <div
+            className="version-attachment-dialog"
+            style={{
+              maxWidth: 900,
+              width: "92vw",
+            }}
+          >
+            <div className="version-attachment-header">
               <div>
                 <h3>
                   目标版本文件清单
                 </h3>
-
-                {manifest && (
-                  <p>
-                    {manifest.version}
-                    {" · "}
-                    {manifest.files.length} 个文件
-                    {" · "}
-                    {formatFileSize(
-                      manifest.totalFileSize,
-                    )}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {manifestLoading ? (
-              <div className="client-update-empty">
-                正在读取清单...
-              </div>
-            ) : manifest ? (
-              <>
-                {manifest.deletePaths.length > 0 && (
-                  <div className="client-update-delete-list">
-                    <strong>
-                      升级时删除：
-                    </strong>
-
-                    {manifest.deletePaths.map(
-                      (path) => (
-                        <code key={path}>
-                          {path}
-                        </code>
-                      ),
-                    )}
-                  </div>
-                )}
-
-                <div className="client-update-manifest-list">
-                  {manifest.files.map(
-                    (file) => (
-                      <div
-                        key={file.path}
-                        className="client-update-manifest-item"
-                      >
-                        <div>
-                          <strong>
-                            {file.path}
-                          </strong>
-
-                          <small>
-                            {formatFileSize(
-                              file.size,
-                            )}
-                          </small>
-                        </div>
-
-                        <code>
-                          {file.sha256}
-                        </code>
-                      </div>
-                    ),
+                <p>
+                  {manifest.version} ·{" "}
+                  {manifest.files.length}{" "}
+                  文件 ·{" "}
+                  {formatSize(
+                    manifest.totalFileSize,
                   )}
-                </div>
-              </>
-            ) : null}
+                </p>
+              </div>
 
-            <div className="form-buttons">
               <button
                 type="button"
                 className="normal-button"
-                onClick={() => {
-                  setManifest(
-                    null,
-                  );
-
-                  setManifestLoading(
-                    false,
-                  );
-                }}
+                onClick={() =>
+                  setManifest(null)
+                }
               >
                 关闭
+              </button>
+            </div>
+
+            <div
+              style={{
+                maxHeight: "60vh",
+                overflow: "auto",
+                marginTop: 14,
+              }}
+            >
+              {manifest.files.map(
+                (file) => (
+                  <div
+                    key={file.path}
+                    style={{
+                      borderBottom:
+                        "1px solid #eef2f7",
+                      padding: "8px 0",
+                    }}
+                  >
+                    <strong>
+                      {file.path}
+                    </strong>
+
+                    <small
+                      style={{
+                        marginLeft: 12,
+                      }}
+                    >
+                      {formatSize(
+                        file.size,
+                      )}
+                    </small>
+                  </div>
+                ),
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {publishing && preflight && (
+        <div className="version-attachment-mask">
+          <div
+            className="version-attachment-dialog"
+            style={{ maxWidth: 760 }}
+          >
+            <h3>
+              发布版本 ·{" "}
+              {publishing.softwareName}{" "}
+              {publishing.version}
+            </h3>
+
+            <div
+              style={{
+                padding: 12,
+                border:
+                  "1px solid #cbd5e1",
+                borderRadius: 8,
+                marginBottom: 14,
+              }}
+            >
+              <div>
+                完整安装包：
+                {preflight.hasFullPackage
+                  ? "✅"
+                  : "—"}{" "}
+                · 自动更新包：
+                {preflight.hasUpdatePackage
+                  ? "✅"
+                  : "—"}
+              </div>
+
+              <div>
+                更新清单：
+                {preflight.manifestFileCount}
+                个文件 · 删除{" "}
+                {preflight.manifestDeleteCount}
+                个
+              </div>
+
+              <div>
+                Updater 自更新：
+                {preflight.containsUpdaterSelfUpdate
+                  ? "本版本包含"
+                  : "本版本不包含"}
+              </div>
+
+              {preflight.warnings.map(
+                (warning) => (
+                  <div
+                    key={warning}
+                    style={{ marginTop: 6 }}
+                  >
+                    <AlertTriangle
+                      size={14}
+                    />{" "}
+                    {warning}
+                  </div>
+                ),
+              )}
+            </div>
+
+            <label>
+              <input
+                type="radio"
+                checked={publishToAll}
+                disabled={
+                  publishing.versionType
+                  === "Beta"
+                }
+                onChange={() =>
+                  setPublishToAll(true)
+                }
+              />{" "}
+              全部授权客户（
+              {customers.length} 家）
+            </label>
+
+            <br />
+
+            <label>
+              <input
+                type="radio"
+                checked={!publishToAll}
+                onChange={() =>
+                  setPublishToAll(false)
+                }
+              />{" "}
+              指定客户
+            </label>
+
+            {!publishToAll && (
+              <div
+                style={{
+                  marginTop: 12,
+                  maxHeight: 260,
+                  overflow: "auto",
+                }}
+              >
+                {customers.map(
+                  (customer) => (
+                    <label
+                      key={
+                        customer.customerId
+                      }
+                      style={{
+                        display:
+                          "block",
+                        marginBottom: 8,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedCustomerIds.includes(
+                          customer.customerId,
+                        )}
+                        onChange={() =>
+                          toggleCustomer(
+                            customer.customerId,
+                          )
+                        }
+                      />{" "}
+                      {customer.name} ·{" "}
+                      {customer.code}
+                    </label>
+                  ),
+                )}
+              </div>
+            )}
+
+            <div
+              className="form-buttons"
+              style={{ marginTop: 18 }}
+            >
+              <button
+                type="button"
+                className="primary-button"
+                disabled={isPublishing}
+                onClick={() =>
+                  void confirmPublish()
+                }
+              >
+                {isPublishing
+                  ? "发布中..."
+                  : "确认发布"}
+              </button>
+
+              <button
+                type="button"
+                className="normal-button"
+                disabled={isPublishing}
+                onClick={() => {
+                  setPublishing(null);
+                  setPreflight(null);
+                }}
+              >
+                取消
               </button>
             </div>
           </div>
         </div>
       )}
-{publishingVersion && (
-  <div className="version-attachment-mask">
-    <div className="client-update-dialog">
-      <div className="client-update-dialog-title">
-        <CheckCircle2 size={22} />
-
-        <div>
-          <h3>
-            发布自动更新版本
-          </h3>
-
-          <p>
-            {publishingVersion.softwareName}
-            {" · "}
-            {publishingVersion.version}
-            {" · "}
-            {publishingVersion.versionType}
-          </p>
-        </div>
-      </div>
-
-      <div className="client-update-secret-warning">
-        发布后该版本的自动更新 ZIP 将锁定。
-        客户端只有在版本已发布并且属于发布范围时，
-        才能检测到该版本。
-      </div>
-
-      <div className="form-section">
-        <h4>
-          发布范围
-        </h4>
-
-        <label>
-          <input
-            type="radio"
-            checked={
-              publishToAll
-            }
-            disabled={
-              publishingVersion.versionType
-                === "Beta"
-            }
-            onChange={() =>
-              setPublishToAll(
-                true,
-              )
-            }
-          />
-
-          {" "}
-          全部授权客户
-          {" "}
-          （{publishCustomers.length} 家）
-        </label>
-
-        <br />
-
-        <label>
-          <input
-            type="radio"
-            checked={
-              !publishToAll
-            }
-            onChange={() =>
-              setPublishToAll(
-                false,
-              )
-            }
-          />
-
-          {" "}
-          指定客户
-        </label>
-      </div>
-
-      {!publishToAll && (
-        <div className="form-section">
-          <h4>
-            选择客户
-          </h4>
-
-          {publishCustomers.length === 0 ? (
-            <div className="client-update-empty">
-              当前没有已授权客户
-            </div>
-          ) : (
-            publishCustomers.map(
-              (customer) => (
-                <label
-                  key={
-                    customer.customerId
-                  }
-                  style={{
-                    display: "block",
-                    marginBottom: 10,
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={
-                      selectedCustomerIds
-                        .includes(
-                          customer.customerId,
-                        )
-                    }
-                    onChange={() =>
-                      togglePublishCustomer(
-                        customer.customerId,
-                      )
-                    }
-                  />
-
-                  {" "}
-                  {customer.name}
-                  {" · "}
-                  {customer.code}
-
-                  {(customer.province
-                    ||
-                    customer.city) && (
-                    <>
-                      {" · "}
-                      {customer.province}
-                      {customer.city}
-                    </>
-                  )}
-                </label>
-              ),
-            )
-          )}
-        </div>
-      )}
-
-      {publishingVersion.versionType
-        === "Beta" && (
-        <div className="client-update-package-tip">
-          Beta 版本只能发布给指定客户。
-        </div>
-      )}
-
-      <div className="form-buttons">
-        <button
-          type="button"
-          className="primary-button"
-          disabled={
-            isPublishing
-            ||
-            (
-              !publishToAll
-              &&
-              selectedCustomerIds.length
-                === 0
-            )
-          }
-          onClick={() =>
-            void confirmPublishVersion()
-          }
-        >
-          {isPublishing
-            ? "发布中..."
-            : "确认发布"}
-        </button>
-
-        <button
-          type="button"
-          className="normal-button"
-          disabled={
-            isPublishing
-          }
-          onClick={() => {
-            setPublishingVersion(
-              null,
-            );
-
-            setPublishCustomers(
-              [],
-            );
-
-            setSelectedCustomerIds(
-              [],
-            );
-          }}
-        >
-          取消
-        </button>
-      </div>
-    </div>
-  </div>
-)}
-
-      {loading && (
-        <div className="dashboard-empty">
-          正在加载自动更新配置...
-        </div>
-      )}
     </div>
   );
 }
-
 
 export default ClientUpdatePage;

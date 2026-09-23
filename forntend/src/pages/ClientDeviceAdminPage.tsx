@@ -3,8 +3,10 @@ import {
   Boxes,
   Building2,
   Monitor,
+  Pencil,
   RefreshCw,
   Search,
+  Settings2,
   ShieldCheck,
   ShieldOff,
 } from "lucide-react";
@@ -12,19 +14,16 @@ import { apiFetch } from "../services/api";
 
 interface DeviceBindingSummary {
   customerSoftwareId: number;
-
   customerId: number;
   customerName: string;
   customerCode: string;
   customerEnabled: boolean;
-
   softwareId: number;
   softwareName: string;
   softwareCode: string;
   softwareEnabled: boolean;
-
   bindingEnabled: boolean;
-
+  maxDeviceCount: number;
   deviceCount: number;
   enabledDeviceCount: number;
   disabledDeviceCount: number;
@@ -35,6 +34,7 @@ interface DeviceItem {
   id: number;
   installationId: string;
   deviceName: string;
+  remark: string;
   tokenPrefix: string;
   isEnabled: boolean;
   activatedAt: string;
@@ -51,18 +51,11 @@ interface DeviceDetailResult {
   softwareName: string;
   softwareCode: string;
   bindingEnabled: boolean;
+  maxDeviceCount: number;
+  enabledDeviceCount: number;
   devices: DeviceItem[];
 }
 
-/**
- * 管理员设备级自动更新授权管理。
- *
- * 这里展示的是“真实安装设备”，
- * 不再让管理员把共享 UpdateToken 当成主要管理对象。
- *
- * 旧版共享 Token 页面暂时继续保留，
- * 用于兼容已经部署出去的老客户端。
- */
 function ClientDeviceAdminPage() {
   const [items, setItems] = useState<DeviceBindingSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,6 +65,7 @@ function ClientDeviceAdminPage() {
   const [detail, setDetail] = useState<DeviceDetailResult | null>(null);
   const [deviceLoading, setDeviceLoading] = useState(false);
   const [savingDeviceId, setSavingDeviceId] = useState<number | null>(null);
+  const [savingLimitId, setSavingLimitId] = useState<number | null>(null);
 
   async function loadBindings() {
     try {
@@ -81,17 +75,15 @@ function ClientDeviceAdminPage() {
       const response = await apiFetch("/api/client-device-admin/bindings");
 
       if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `加载更新设备失败：${response.status}`);
+        throw new Error(
+          (await response.text()) || `加载更新设备失败：${response.status}`,
+        );
       }
 
       setItems((await response.json()) as DeviceBindingSummary[]);
     } catch (error) {
-      console.error("加载更新设备授权失败：", error);
       setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "加载更新设备授权失败",
+        error instanceof Error ? error.message : "加载更新设备授权失败",
       );
     } finally {
       setLoading(false);
@@ -121,30 +113,38 @@ function ClientDeviceAdminPage() {
   async function openDevices(item: DeviceBindingSummary) {
     try {
       setDeviceLoading(true);
-      setDetail(null);
 
       const response = await apiFetch(
         `/api/client-device-admin/bindings/${item.customerSoftwareId}/devices`,
       );
 
       if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `加载设备列表失败：${response.status}`);
+        throw new Error(
+          (await response.text()) || `加载设备列表失败：${response.status}`,
+        );
       }
 
       setDetail((await response.json()) as DeviceDetailResult);
     } catch (error) {
-      console.error("加载设备列表失败：", error);
       alert(error instanceof Error ? error.message : "加载设备列表失败");
     } finally {
       setDeviceLoading(false);
     }
   }
 
-  async function setDeviceEnabled(
-    device: DeviceItem,
-    enabled: boolean,
-  ) {
+  async function refreshDetail(customerSoftwareId: number) {
+    const response = await apiFetch(
+      `/api/client-device-admin/bindings/${customerSoftwareId}/devices`,
+    );
+
+    if (!response.ok) {
+      throw new Error((await response.text()) || "刷新设备列表失败");
+    }
+
+    setDetail((await response.json()) as DeviceDetailResult);
+  }
+
+  async function setDeviceEnabled(device: DeviceItem, enabled: boolean) {
     if (!detail) {
       return;
     }
@@ -154,7 +154,7 @@ function ClientDeviceAdminPage() {
     if (
       !window.confirm(
         `确定对设备“${device.deviceName || "未命名设备"}”执行“${actionName}”吗？\n\n` +
-          "该操作只影响这台设备的在线自动更新，不影响业务软件正常启动和使用。",
+          "只影响这台设备的在线自动更新，不影响业务软件正常使用。",
       )
     ) {
       return;
@@ -171,55 +171,118 @@ function ClientDeviceAdminPage() {
       );
 
       if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `修改设备状态失败：${response.status}`);
+        throw new Error((await response.text()) || "修改设备状态失败");
       }
 
-      await openDevicesByBindingId(detail.customerSoftwareId);
+      await refreshDetail(detail.customerSoftwareId);
       await loadBindings();
     } catch (error) {
-      console.error("修改设备更新权限失败：", error);
-      alert(error instanceof Error ? error.message : "修改设备更新权限失败");
+      alert(error instanceof Error ? error.message : "修改设备状态失败");
     } finally {
       setSavingDeviceId(null);
     }
   }
 
-  async function openDevicesByBindingId(customerSoftwareId: number) {
-    const response = await apiFetch(
-      `/api/client-device-admin/bindings/${customerSoftwareId}/devices`,
-    );
+  async function editDevice(device: DeviceItem) {
+    const name = window.prompt("设备显示名称：", device.deviceName);
 
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || `刷新设备列表失败：${response.status}`);
+    if (name === null) {
+      return;
     }
 
-    setDetail((await response.json()) as DeviceDetailResult);
+    const remark = window.prompt("设备备注：", device.remark || "");
+
+    if (remark === null) {
+      return;
+    }
+
+    try {
+      setSavingDeviceId(device.id);
+
+      const response = await apiFetch(
+        `/api/client-device-admin/devices/${device.id}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            deviceName: name,
+            remark,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error((await response.text()) || "修改设备信息失败");
+      }
+
+      if (detail) {
+        await refreshDetail(detail.customerSoftwareId);
+      }
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "修改设备信息失败");
+    } finally {
+      setSavingDeviceId(null);
+    }
+  }
+
+  async function setDeviceLimit(item: DeviceBindingSummary) {
+    const current =
+      item.maxDeviceCount === 0 ? "0" : String(item.maxDeviceCount);
+
+    const input = window.prompt(
+      "请输入最大启用设备数。\n0 表示不限制。\n降低上限不会自动停用现有设备。",
+      current,
+    );
+
+    if (input === null) {
+      return;
+    }
+
+    const maxDeviceCount = Number(input.trim());
+
+    if (
+      !Number.isInteger(maxDeviceCount) ||
+      maxDeviceCount < 0 ||
+      maxDeviceCount > 9999
+    ) {
+      alert("请输入 0～9999 的整数");
+      return;
+    }
+
+    try {
+      setSavingLimitId(item.customerSoftwareId);
+
+      const response = await apiFetch(
+        `/api/client-device-admin/bindings/${item.customerSoftwareId}/device-limit`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ maxDeviceCount }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error((await response.text()) || "设置设备上限失败");
+      }
+
+      await loadBindings();
+
+      if (detail?.customerSoftwareId === item.customerSoftwareId) {
+        await refreshDetail(item.customerSoftwareId);
+      }
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "设置设备上限失败");
+    } finally {
+      setSavingLimitId(null);
+    }
   }
 
   function formatDate(value: string | null) {
-    if (!value) {
-      return "-";
-    }
-
-    return new Date(value).toLocaleString("zh-CN");
-  }
-
-  function getBindingStatus(item: DeviceBindingSummary) {
-    if (!item.customerEnabled) {
-      return "客户已停用";
-    }
-
-    if (!item.softwareEnabled) {
-      return "软件已停用";
-    }
-
-    if (!item.bindingEnabled) {
-      return "授权已停用";
-    }
-
-    return "正常";
+    return value ? new Date(value).toLocaleString("zh-CN") : "-";
   }
 
   return (
@@ -229,7 +292,7 @@ function ClientDeviceAdminPage() {
           <span className="u-eyebrow">DEVICE UPDATE AUTHORIZATION</span>
           <h2>更新设备授权</h2>
           <p>
-            按客户和软件查看已经完成更新授权的设备，并可单独停用或重新启用某台设备的自动更新权限。
+            查看每个客户的软件更新设备，设置设备数量上限，并可单独停用、启用、改名和备注。
           </p>
         </div>
 
@@ -272,16 +335,7 @@ function ClientDeviceAdminPage() {
         {loading ? (
           <div className="u-loading-card">正在加载更新设备授权...</div>
         ) : errorMessage ? (
-          <div className="u-error-card">
-            <span>{errorMessage}</span>
-            <button
-              type="button"
-              className="primary-button"
-              onClick={() => void loadBindings()}
-            >
-              重新加载
-            </button>
-          </div>
+          <div className="u-error-card">{errorMessage}</div>
         ) : filteredItems.length === 0 ? (
           <div className="u-empty-state">暂无符合条件的客户软件授权。</div>
         ) : (
@@ -294,109 +348,115 @@ function ClientDeviceAdminPage() {
                   borderRadius: 12,
                   padding: 16,
                   display: "grid",
-                  gridTemplateColumns: "minmax(180px, 1.2fr) minmax(180px, 1.2fr) minmax(200px, 1fr) auto",
+                  gridTemplateColumns:
+                    "minmax(180px,1.1fr) minmax(180px,1.1fr) minmax(240px,1.2fr) auto",
                   gap: 18,
                   alignItems: "center",
                 }}
               >
                 <div>
-                  <div
+                  <strong
                     style={{
                       display: "flex",
                       alignItems: "center",
                       gap: 8,
-                      fontWeight: 700,
                     }}
                   >
                     <Building2 size={16} />
                     {item.customerName}
-                  </div>
-                  <div style={{ color: "#64748b", fontSize: 13, marginTop: 4 }}>
-                    {item.customerCode}
-                  </div>
+                  </strong>
+                  <small>{item.customerCode}</small>
                 </div>
 
                 <div>
-                  <div
+                  <strong
                     style={{
                       display: "flex",
                       alignItems: "center",
                       gap: 8,
-                      fontWeight: 700,
                     }}
                   >
                     <Boxes size={16} />
                     {item.softwareName}
-                  </div>
-                  <div style={{ color: "#64748b", fontSize: 13, marginTop: 4 }}>
-                    {item.softwareCode}
-                  </div>
+                  </strong>
+                  <small>{item.softwareCode}</small>
                 </div>
 
-                <div>
-                  <div style={{ fontWeight: 700 }}>
-                    已授权更新设备：{item.deviceCount} 台
+                <div style={{ fontSize: 13, lineHeight: 1.8 }}>
+                  <div>
+                    已授权：{item.deviceCount} 台 · 正常{" "}
+                    {item.enabledDeviceCount} · 已停用 {item.disabledDeviceCount}
                   </div>
-                  <div style={{ color: "#64748b", fontSize: 13, marginTop: 4 }}>
-                    正常 {item.enabledDeviceCount} · 已停用 {item.disabledDeviceCount}
+                  <div>
+                    设备上限：
+                    {item.maxDeviceCount === 0
+                      ? "不限制"
+                      : `${item.maxDeviceCount} 台`}
                   </div>
-                  <div style={{ color: "#64748b", fontSize: 13, marginTop: 4 }}>
-                    最近检查：{formatDate(item.lastUsedAt)}
-                  </div>
-                  <div style={{ color: "#64748b", fontSize: 13, marginTop: 4 }}>
-                    授权状态：{getBindingStatus(item)}
-                  </div>
+                  <div>最近检查：{formatDate(item.lastUsedAt)}</div>
                 </div>
 
-                <button
-                  type="button"
-                  className="normal-button"
-                  disabled={deviceLoading}
-                  onClick={() => void openDevices(item)}
-                >
-                  <Monitor size={15} />
-                  查看设备
-                </button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    className="normal-button"
+                    disabled={savingLimitId === item.customerSoftwareId}
+                    onClick={() => void setDeviceLimit(item)}
+                  >
+                    <Settings2 size={15} />
+                    设置上限
+                  </button>
+
+                  <button
+                    type="button"
+                    className="normal-button"
+                    onClick={() => void openDevices(item)}
+                  >
+                    <Monitor size={15} />
+                    查看设备
+                  </button>
+                </div>
               </div>
             ))}
           </div>
         )}
       </section>
 
-      {(detail || deviceLoading) && (
+      {detail && (
         <div className="version-attachment-mask">
           <div
             className="version-attachment-dialog"
-            style={{ maxWidth: 900, width: "92vw" }}
+            style={{ maxWidth: 960, width: "94vw" }}
           >
             <div className="version-attachment-header">
               <div>
                 <h3>更新设备管理</h3>
-                {detail && (
-                  <p>
-                    {detail.customerName} · {detail.softwareName} ·{" "}
-                    {detail.softwareCode}
-                  </p>
-                )}
+                <p>
+                  {detail.customerName} · {detail.softwareName} ·{" "}
+                  {detail.softwareCode}
+                </p>
+                <small>
+                  当前启用 {detail.enabledDeviceCount} 台 · 上限{" "}
+                  {detail.maxDeviceCount === 0
+                    ? "不限制"
+                    : `${detail.maxDeviceCount} 台`}
+                </small>
               </div>
 
               <button
                 type="button"
                 className="normal-button"
-                disabled={deviceLoading}
                 onClick={() => setDetail(null)}
               >
                 关闭
               </button>
             </div>
 
-            {deviceLoading && !detail ? (
+            {deviceLoading ? (
               <div className="u-loading-card">正在加载设备...</div>
-            ) : detail && detail.devices.length === 0 ? (
-              <div className="u-empty-state">
-                当前客户的这款软件还没有任何设备完成更新授权。
-              </div>
-            ) : detail ? (
+            ) : detail.devices.length === 0 ? (
+              <div className="u-empty-state">暂无已授权更新设备。</div>
+            ) : (
               <div style={{ display: "grid", gap: 12, marginTop: 16 }}>
                 {detail.devices.map((device) => (
                   <div
@@ -406,65 +466,92 @@ function ClientDeviceAdminPage() {
                       borderRadius: 10,
                       padding: 14,
                       display: "grid",
-                      gridTemplateColumns: "minmax(180px, 1fr) minmax(260px, 1.5fr) auto",
+                      gridTemplateColumns:
+                        "minmax(180px,1fr) minmax(300px,1.6fr) auto",
                       gap: 18,
                       alignItems: "center",
                     }}
                   >
                     <div>
-                      <div style={{ fontWeight: 700 }}>
-                        {device.deviceName || "未命名设备"}
+                      <strong>{device.deviceName || "未命名设备"}</strong>
+                      <div style={{ fontSize: 13, marginTop: 5 }}>
+                        {device.remark || "暂无备注"}
                       </div>
-                      <div style={{ color: "#64748b", fontSize: 13, marginTop: 4 }}>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: "#64748b",
+                          marginTop: 5,
+                        }}
+                      >
                         Token：{device.tokenPrefix || "-"}
                       </div>
                     </div>
 
-                    <div style={{ color: "#64748b", fontSize: 13 }}>
+                    <div
+                      style={{
+                        color: "#64748b",
+                        fontSize: 13,
+                        lineHeight: 1.8,
+                      }}
+                    >
                       <div>安装实例：{device.installationId}</div>
                       <div>授权时间：{formatDate(device.activatedAt)}</div>
                       <div>最近检查：{formatDate(device.lastUsedAt)}</div>
                     </div>
 
-                    <div style={{ textAlign: "right" }}>
-                      <div
-                        style={{
-                          marginBottom: 8,
-                          fontWeight: 700,
-                        }}
-                      >
+                    <div
+                      style={{
+                        display: "grid",
+                        gap: 8,
+                        justifyItems: "end",
+                      }}
+                    >
+                      <strong>
                         {device.isEnabled ? (
-                          <span>
-                            <ShieldCheck size={15} style={{ verticalAlign: -2 }} />{" "}
-                            正常
-                          </span>
+                          <>
+                            <ShieldCheck size={15} /> 正常
+                          </>
                         ) : (
-                          <span>
-                            <ShieldOff size={15} style={{ verticalAlign: -2 }} />{" "}
-                            已停用
-                          </span>
+                          <>
+                            <ShieldOff size={15} /> 已停用
+                          </>
                         )}
-                      </div>
+                      </strong>
 
-                      <button
-                        type="button"
-                        className={device.isEnabled ? "delete-button" : "normal-button"}
-                        disabled={savingDeviceId === device.id}
-                        onClick={() =>
-                          void setDeviceEnabled(device, !device.isEnabled)
-                        }
-                      >
-                        {savingDeviceId === device.id
-                          ? "处理中..."
-                          : device.isEnabled
-                            ? "停用更新"
-                            : "重新启用更新"}
-                      </button>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button
+                          type="button"
+                          className="normal-button"
+                          disabled={savingDeviceId === device.id}
+                          onClick={() => void editDevice(device)}
+                        >
+                          <Pencil size={14} />
+                          编辑
+                        </button>
+
+                        <button
+                          type="button"
+                          className={
+                            device.isEnabled ? "delete-button" : "normal-button"
+                          }
+                          disabled={savingDeviceId === device.id}
+                          onClick={() =>
+                            void setDeviceEnabled(device, !device.isEnabled)
+                          }
+                        >
+                          {savingDeviceId === device.id
+                            ? "处理中..."
+                            : device.isEnabled
+                              ? "停用更新"
+                              : "重新启用"}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
-            ) : null}
+            )}
           </div>
         </div>
       )}

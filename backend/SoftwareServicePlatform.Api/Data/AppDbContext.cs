@@ -5,67 +5,49 @@ namespace SoftwareServicePlatform.Api.Data
 {
     public class AppDbContext : DbContext
     {
-        public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
+        public AppDbContext(
+            DbContextOptions<AppDbContext> options)
+            : base(options)
         {
         }
 
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        protected override void OnModelCreating(
+            ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
-            modelBuilder.Entity<Software>().HasIndex(x => x.Code).IsUnique();
+
+            modelBuilder.Entity<Software>()
+                .HasIndex(x => x.Code)
+                .IsUnique();
 
             modelBuilder.Entity<SoftwareVersion>()
-    .HasOne(x => x.Software)
-    .WithMany(x => x.Versions)
-    .HasForeignKey(x => x.SoftwareId)
-    .OnDelete(DeleteBehavior.Cascade);
+                .HasOne(x => x.Software)
+                .WithMany(x => x.Versions)
+                .HasForeignKey(x => x.SoftwareId)
+                .OnDelete(DeleteBehavior.Cascade);
 
-
-            /*
- * 登录账号必须唯一。
- *
- * 不能出现两个：
- *
- * Username = admin
- */
             modelBuilder.Entity<User>()
                 .HasIndex(x => x.Username)
                 .IsUnique();
 
+            modelBuilder.Entity<User>()
+                .HasOne(x => x.Customer)
+                .WithMany(x => x.Users)
+                .HasForeignKey(x => x.CustomerId)
+                .OnDelete(DeleteBehavior.SetNull);
 
-            /*
- * Customer
- *    1
- *    ↓
- *    N 
- * CustomerSoftware
- */
             modelBuilder.Entity<CustomerSoftware>()
                 .HasOne(x => x.Customer)
                 .WithMany(x => x.CustomerSoftwares)
                 .HasForeignKey(x => x.CustomerId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            /*
- * Software
- *    1
- *    ↓
- *    N
- * CustomerSoftware
- */
             modelBuilder.Entity<CustomerSoftware>()
                 .HasOne(x => x.Software)
                 .WithMany(x => x.CustomerSoftwares)
                 .HasForeignKey(x => x.SoftwareId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-
-            /*
- * 同一个客户不能重复绑定同一个软件。
- *
- * CustomerId + SoftwareId
- * 这个组合必须唯一。
- */
             modelBuilder.Entity<CustomerSoftware>()
                 .HasIndex(x => new
                 {
@@ -74,401 +56,165 @@ namespace SoftwareServicePlatform.Api.Data
                 })
                 .IsUnique();
 
-            /* User
-            *
-            * 一个客户可以有多个登录用户。
-            *
-            * 一个 User 最多属于一个 Customer。
-            */
-            modelBuilder.Entity<User>()
-                .HasOne(x => x.Customer)
-                .WithMany(x => x.Users)
-                .HasForeignKey(x => x.CustomerId)
-                .OnDelete(DeleteBehavior.SetNull);
-            /*
-            * ==========================================
-            * Ticket 工单配置
-            * ==========================================
-            */
+            modelBuilder.Entity<CustomerSoftware>()
+                .Property(x => x.MaxDeviceCount)
+                .HasDefaultValue(0);
 
+            // 设备级更新授权
+            modelBuilder.Entity<ClientInstallation>()
+                .HasOne(x => x.CustomerSoftware)
+                .WithMany(x => x.ClientInstallations)
+                .HasForeignKey(x => x.CustomerSoftwareId)
+                .OnDelete(DeleteBehavior.Cascade);
 
-            /*
-             * 工单编号必须唯一。
-             *
-             * 不允许出现两个：
-             *
-             * TK202609090001
-             */
+            modelBuilder.Entity<ClientActivationCode>()
+                .HasOne(x => x.CustomerSoftware)
+                .WithMany(x => x.ClientActivationCodes)
+                .HasForeignKey(x => x.CustomerSoftwareId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Ticket
             modelBuilder.Entity<Ticket>()
                 .HasIndex(x => x.TicketNo)
                 .IsUnique();
 
-
-            /*
- * 一个 Customer 可以拥有多个 Ticket。
- *
- * 当前阶段不在 Customer 中增加 Tickets 集合，
- * 所以这里直接使用 WithMany()。
- */
             modelBuilder.Entity<Ticket>()
                 .HasOne(x => x.Customer)
                 .WithMany()
                 .HasForeignKey(x => x.CustomerId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-
-            /*
- * 一个 Software 可以对应多个 Ticket。
- *
- * 软件一旦有历史工单，
- * 不允许因为删除 Software
- * 而把工单历史一起删除。
- */
             modelBuilder.Entity<Ticket>()
                 .HasOne(x => x.Software)
                 .WithMany()
                 .HasForeignKey(x => x.SoftwareId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-
-            /*
- * 工单创建人。
- *
- * 一个 User 可以创建很多工单。
- */
             modelBuilder.Entity<Ticket>()
                 .HasOne(x => x.CreatedByUser)
                 .WithMany()
                 .HasForeignKey(x => x.CreatedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-
-            /*
- * 当前处理人。
- *
- * AssignedToUserId 可以为空，
- * 因为刚创建的工单可能尚未分配处理人。
- *
- * 如果以后处理人账号被真正删除，
- * 可以把 AssignedToUserId 自动置空。
- */
             modelBuilder.Entity<Ticket>()
                 .HasOne(x => x.AssignedToUser)
                 .WithMany()
                 .HasForeignKey(x => x.AssignedToUserId)
                 .OnDelete(DeleteBehavior.SetNull);
 
+            modelBuilder.Entity<Ticket>()
+                .Property(x => x.Source)
+                .HasMaxLength(30)
+                .HasDefaultValue("Portal");
 
-            /*
- * ==========================================
- * TicketRecord 工单处理记录配置
- * ==========================================
- */
+            modelBuilder.Entity<Ticket>()
+                .Property(x => x.SlaPriority)
+                .HasMaxLength(30);
 
-
-            /*
-             * Ticket
-             *    1
-             *    ↓
-             *    N
-             * TicketRecord
-             *
-             * 删除 Ticket 时，
-             * 它下面的处理记录也一起删除。
-             *
-             * 为什么这里适合 Cascade：
-             *
-             * TicketRecord 本身没有脱离 Ticket
-             * 独立存在的意义。
-             */
             modelBuilder.Entity<TicketRecord>()
                 .HasOne(x => x.Ticket)
                 .WithMany(x => x.Records)
                 .HasForeignKey(x => x.TicketId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-
-            /*
- * TicketRecord -> CreatedByUser
- *
- * 每一条处理记录都必须知道是谁写的。
- *
- * 不允许因为删除一个用户，
- * 就把历史处理记录全部删除。
- */
             modelBuilder.Entity<TicketRecord>()
                 .HasOne(x => x.CreatedByUser)
                 .WithMany()
                 .HasForeignKey(x => x.CreatedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-
-            /*
- * ==========================================
- * TicketAttachment 工单附件
- * ==========================================
- */
-
-
-            /*
-             * 一个 Ticket 可以拥有多个附件。
-             *
-             * Ticket
-             *   1
-             *   ↓
-             *   N
-             * TicketAttachment
-             *
-             * 如果整个 Ticket 被删除，
-             * 它下面的附件数据库记录一起删除。
-             *
-             * 注意：
-             * 后面删除 Ticket 时，
-             * 物理文件还需要代码负责删除。
-             */
             modelBuilder.Entity<TicketAttachment>()
                 .HasOne(x => x.Ticket)
                 .WithMany()
                 .HasForeignKey(x => x.TicketId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            /*
- * 一条 TicketRecord 可以拥有多个附件。
- *
- * TicketRecordId 可以为空。
- *
- * 如果某条 TicketRecord 被删除，
- * 不直接删除物理附件，
- * 而是把 TicketRecordId 设置为 null。
- *
- * 附件仍然属于 Ticket。
- */
             modelBuilder.Entity<TicketAttachment>()
                 .HasOne(x => x.TicketRecord)
                 .WithMany()
                 .HasForeignKey(x => x.TicketRecordId)
                 .OnDelete(DeleteBehavior.SetNull);
 
-            /*
- * 记录是谁上传的附件。
- *
- * User 不应该因为存在附件记录
- * 而被数据库级联删除。
- */
             modelBuilder.Entity<TicketAttachment>()
                 .HasOne(x => x.UploadedByUser)
                 .WithMany()
                 .HasForeignKey(x => x.UploadedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            /*
- * ==========================================
- * SoftwareVersionAttachment
- * 软件版本附件
- * ==========================================
- */
-
-
-            /*
-             * SoftwareVersion
-             *
-             *      1
-             *      ↓
-             *      N
-             *
-             * SoftwareVersionAttachment
-             *
-             * 一个软件版本可以拥有多个附加资料。
-             *
-             * 例如：
-             *
-             * V1.2.0
-             * ├─ 用户手册.pdf
-             * ├─ 常见问题.pdf
-             * └─ 问题日志.zip
-             *
-             * 如果整个 SoftwareVersion 被删除，
-             * 它下面对应的附件数据库记录也一起删除。
-             *
-             * 注意：
-             * 这里只会删除数据库记录。
-             * 真正保存在硬盘上的文件，
-             * 后面仍然需要我们自己写代码删除。
-             */
+            // 软件版本资料
             modelBuilder.Entity<SoftwareVersionAttachment>()
                 .HasOne(x => x.SoftwareVersion)
                 .WithMany()
                 .HasForeignKey(x => x.SoftwareVersionId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-
-            /*
-             * SoftwareVersionAttachment
-             *          ↓
-             *       UploadedByUser
-             *
-             * 每个附件都记录是谁上传的。
-             *
-             * 不允许因为某个用户存在上传历史，
-             * 就把这个用户级联删除。
-             */
             modelBuilder.Entity<SoftwareVersionAttachment>()
                 .HasOne(x => x.UploadedByUser)
                 .WithMany()
                 .HasForeignKey(x => x.UploadedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-
-            /*
- * 工单来源。
- *
- * 当前默认：
- *
- * Portal
- *
- * 这样旧工单在增加 Source 字段以后，
- * 也不会出现空字符串。
- */
-            modelBuilder.Entity<Ticket>()
-                .Property(x => x.Source)
-                .HasMaxLength(30)
-                .HasDefaultValue("Portal");
-
-
-            /*
- * ==========================================
- * DownloadRecord
- * 软件安装包下载记录
- * ==========================================
- */
-
-
-            /*
-             * 下载用户。
-             *
-             * 用户以后即使删除，
-             * 也不能把历史下载记录一起删除。
-             *
-             * 所以使用 SetNull。
-             */
+            // 下载 / 更新记录
             modelBuilder.Entity<DownloadRecord>()
                 .HasOne(x => x.User)
                 .WithMany()
                 .HasForeignKey(x => x.UserId)
                 .OnDelete(DeleteBehavior.SetNull);
 
-
-            /*
-             * 下载记录所属客户。
-             */
             modelBuilder.Entity<DownloadRecord>()
                 .HasOne(x => x.Customer)
                 .WithMany()
                 .HasForeignKey(x => x.CustomerId)
                 .OnDelete(DeleteBehavior.SetNull);
 
-
-            /*
-             * 下载的是哪个软件。
-             */
             modelBuilder.Entity<DownloadRecord>()
                 .HasOne(x => x.Software)
                 .WithMany()
                 .HasForeignKey(x => x.SoftwareId)
                 .OnDelete(DeleteBehavior.SetNull);
 
-
-            /*
-             * 下载的是哪个软件版本。
-             */
             modelBuilder.Entity<DownloadRecord>()
                 .HasOne(x => x.SoftwareVersion)
                 .WithMany()
                 .HasForeignKey(x => x.SoftwareVersionId)
                 .OnDelete(DeleteBehavior.SetNull);
 
-
-            /*
- * ==========================================
- * TicketSlaRule
- * 工单 SLA 规则
- * ==========================================
- */
-
-
-            /*
-             * Priority 最长30字符。
-             */
+            // SLA
             modelBuilder.Entity<TicketSlaRule>()
                 .Property(x => x.Priority)
                 .HasMaxLength(30);
 
-
-            /*
-             * 同一种工单优先级只能存在一条 SLA 规则。
-             *
-             * 例如数据库中不能同时出现两条：
-             *
-             * Normal
-             * Normal
-             */
             modelBuilder.Entity<TicketSlaRule>()
                 .HasIndex(x => x.Priority)
                 .IsUnique();
 
-            modelBuilder.Entity<Ticket>()
-    .Property(x => x.SlaPriority)
-    .HasMaxLength(30);
-
-
-            /*
- * ==========================================
- * Notification
- * 站内通知
- * ==========================================
- */
-
+            // Notification
             modelBuilder.Entity<Notification>()
                 .HasOne(x => x.User)
                 .WithMany()
                 .HasForeignKey(x => x.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-
             modelBuilder.Entity<Notification>()
                 .Property(x => x.Type)
                 .HasMaxLength(50);
-
 
             modelBuilder.Entity<Notification>()
                 .Property(x => x.Level)
                 .HasMaxLength(20);
 
-
             modelBuilder.Entity<Notification>()
                 .Property(x => x.Title)
                 .HasMaxLength(200);
-
 
             modelBuilder.Entity<Notification>()
                 .Property(x => x.TargetUrl)
                 .HasMaxLength(500);
 
-
             modelBuilder.Entity<Notification>()
                 .Property(x => x.DedupKey)
                 .HasMaxLength(200);
 
-
-            /*
-             * 同一个用户不能收到相同 DedupKey 的重复通知。
-             *
-             * 注意：
-             * DedupKey 可以为空。
-             *
-             * 普通通知可以不设置 DedupKey，
-             * 只有需要防重复的通知才使用它。
-             */
             modelBuilder.Entity<Notification>()
                 .HasIndex(x => new
                 {
@@ -477,18 +223,6 @@ namespace SoftwareServicePlatform.Api.Data
                 })
                 .IsUnique();
 
-
-            /*
-             * 通知中心最常见的查询：
-             *
-             * 当前用户
-             * +
-             * 是否未读
-             * +
-             * 创建时间倒序
-             *
-             * 因此提前建立索引。
-             */
             modelBuilder.Entity<Notification>()
                 .HasIndex(x => new
                 {
@@ -497,11 +231,12 @@ namespace SoftwareServicePlatform.Api.Data
                     x.CreatedAt
                 });
 
+            // 版本发布范围
             modelBuilder.Entity<SoftwareVersionCustomer>()
-    .HasOne(x => x.SoftwareVersion)
-    .WithMany()
-    .HasForeignKey(x => x.SoftwareVersionId)
-    .OnDelete(DeleteBehavior.Cascade);
+                .HasOne(x => x.SoftwareVersion)
+                .WithMany()
+                .HasForeignKey(x => x.SoftwareVersionId)
+                .OnDelete(DeleteBehavior.Cascade);
 
             modelBuilder.Entity<SoftwareVersionCustomer>()
                 .HasOne(x => x.Customer)
@@ -517,48 +252,13 @@ namespace SoftwareServicePlatform.Api.Data
                 })
                 .IsUnique();
 
-
-            /*
- * ==========================================
- * ExternalUserBinding
- * ==========================================
- *
- * 一个系统用户可以绑定多个外部平台。
- *
- * 例如：
- *
- * UserId = 12
- *
- * DingTalk
- * WeCom
- * Feishu
- *
- * 因此关系为：
- *
- * User 1 : N ExternalUserBinding
- */
+            // 外部通知用户绑定
             modelBuilder.Entity<ExternalUserBinding>()
                 .HasOne(x => x.User)
                 .WithMany()
                 .HasForeignKey(x => x.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-
-            /*
-             * ==========================================
-             * 同一个用户 + 同一个渠道只能绑定一次
-             * ==========================================
-             *
-             * 例如：
-             *
-             * UserId = 12
-             * Channel = DingTalk
-             *
-             * 数据库中原则上只能存在一条。
-             *
-             * 防止管理员误操作产生两条钉钉绑定，
-             * 导致后续不知道应该使用哪一个账号。
-             */
             modelBuilder.Entity<ExternalUserBinding>()
                 .HasIndex(x => new
                 {
@@ -567,147 +267,54 @@ namespace SoftwareServicePlatform.Api.Data
                 })
                 .IsUnique();
 
-
-            /*
-             * 限制渠道名称长度。
-             *
-             * DingTalk / WeCom / Feishu
-             * 都远小于 50 字符。
-             */
             modelBuilder.Entity<ExternalUserBinding>()
                 .Property(x => x.Channel)
                 .HasMaxLength(50)
                 .IsRequired();
 
-
-            /*
-             * 外部用户ID的长度暂时预留到 200。
-             *
-             * 不把它限制成某个钉钉专属长度，
-             * 因为这张表以后还要支持其他平台。
-             */
             modelBuilder.Entity<ExternalUserBinding>()
                 .Property(x => x.ExternalUserId)
                 .HasMaxLength(200);
 
-
-            /*
-             * 手机号预留一定长度，
-             * 兼容国际区号等情况。
-             */
             modelBuilder.Entity<ExternalUserBinding>()
                 .Property(x => x.Mobile)
                 .HasMaxLength(50);
 
-
-            /*
- * ==========================================
- * NotificationPolicy
- * 通知策略
- * ==========================================
- */
-
-
-            /*
-             * EventKey 是系统识别通知事件的唯一编码。
-             *
-             * 例如：
-             *
-             * Ticket.Created
-             *
-             * 数据库中只能存在一条。
-             */
+            // 通知策略
             modelBuilder.Entity<NotificationPolicy>()
                 .HasIndex(x => x.EventKey)
                 .IsUnique();
 
-
-            /*
-             * EventKey 属于程序内部业务编码，
-             * 100 字符已经足够。
-             */
             modelBuilder.Entity<NotificationPolicy>()
                 .Property(x => x.EventKey)
                 .HasMaxLength(100)
                 .IsRequired();
 
-
-            /*
-             * 后台管理页面展示的事件名称。
-             */
             modelBuilder.Entity<NotificationPolicy>()
                 .Property(x => x.EventName)
                 .HasMaxLength(100)
                 .IsRequired();
 
-
-            /*
-             * 事件说明。
-             */
             modelBuilder.Entity<NotificationPolicy>()
                 .Property(x => x.Description)
                 .HasMaxLength(500);
 
-
-            /*
-             * 接收人解析策略。
-             *
-             * 后续由 RecipientResolver
-             * 根据这个字段解析真正的用户。
-             */
             modelBuilder.Entity<NotificationPolicy>()
                 .Property(x => x.RecipientStrategy)
                 .HasMaxLength(50)
                 .IsRequired();
 
-
-            /*
-             * 默认通知级别。
-             *
-             * Info
-             * Warning
-             * Danger
-             */
             modelBuilder.Entity<NotificationPolicy>()
                 .Property(x => x.DefaultLevel)
                 .HasMaxLength(20)
                 .IsRequired();
 
-
-
-            /*
-             * ==========================================
-             * NotificationPolicyChannel
-             * 外部通知渠道
-             * ==========================================
-             *
-             * NotificationPolicy
-             *        1
-             *        ↓
-             *        N
-             * NotificationPolicyChannel
-             *
-             * 如果通知策略被删除，
-             * 对应渠道配置也没有继续存在的意义，
-             * 所以使用 Cascade。
-             */
             modelBuilder.Entity<NotificationPolicyChannel>()
                 .HasOne(x => x.NotificationPolicy)
                 .WithMany(x => x.Channels)
                 .HasForeignKey(x => x.NotificationPolicyId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-
-            /*
-             * 同一个通知策略，
-             * 同一个渠道只能配置一次。
-             *
-             * 例如：
-             *
-             * Ticket.Triaged
-             *
-             * 只能存在一个 DingTalk 配置。
-             */
             modelBuilder.Entity<NotificationPolicyChannel>()
                 .HasIndex(x => new
                 {
@@ -716,152 +323,36 @@ namespace SoftwareServicePlatform.Api.Data
                 })
                 .IsUnique();
 
-
-            /*
-             * 渠道名称长度。
-             *
-             * DingTalk
-             * WeCom
-             * Feishu
-             * Email
-             *
-             * 50 字符足够。
-             */
             modelBuilder.Entity<NotificationPolicyChannel>()
                 .Property(x => x.Channel)
                 .HasMaxLength(50)
                 .IsRequired();
 
             /*
- * ==========================================
- * ClientUpdateCredential
- * 客户端自动更新凭证
- * ==========================================
- */
-
-            modelBuilder.Entity<ClientUpdateCredential>()
-                .HasOne(x => x.CustomerSoftware)
-                .WithOne()
-                .HasForeignKey<ClientUpdateCredential>(
-                    x => x.CustomerSoftwareId
-                )
-                .OnDelete(DeleteBehavior.Cascade);
-
-
-            /*
-             * 一个客户 + 软件绑定只能拥有一套更新凭证。
+             * 旧 ClientUpdateCredential 已从 EF 模型移除。
+             * 新 Migration 会删除旧共享 Token 表。
              */
-            modelBuilder.Entity<ClientUpdateCredential>()
-                .HasIndex(x => x.CustomerSoftwareId)
-                .IsUnique();
-
-
-            /*
-             * TokenHash 全局唯一。
-             */
-            modelBuilder.Entity<ClientUpdateCredential>()
-                .HasIndex(x => x.TokenHash)
-                .IsUnique();
-
-
-            modelBuilder.Entity<ClientUpdateCredential>()
-                .Property(x => x.TokenHash)
-                .HasMaxLength(64)
-                .IsRequired();
-
-
-            modelBuilder.Entity<ClientUpdateCredential>()
-                .Property(x => x.TokenPrefix)
-                .HasMaxLength(64)
-                .IsRequired();
         }
-        public DbSet<Models.Customer> Customers { get; set; } = null!;
-        public DbSet<Software> Softwares { get; set; }
 
-        public DbSet<SoftwareVersion> SoftwareVersions { get; set; }
-
-
-        public DbSet<User> Users { get; set; }
-
-
-        public DbSet<CustomerSoftware> CustomerSoftwares { get; set; }
-
-
-        /// <summary>
-        /// 工单数据。
-        /// </summary>
-        public DbSet<Ticket> Tickets { get; set; }
-
-        /// <summary>
-        /// 工单处理记录。
-        /// </summary>
-        public DbSet<TicketRecord> TicketRecords { get; set; }
-
-        /// <summary>
-        /// 工单附件。
-        /// </summary>
-        public DbSet<TicketAttachment> TicketAttachments { get; set; }
-
-
-        /// <summary>
-        /// 软件版本附加资料。
-        /// </summary>
-        public DbSet<SoftwareVersionAttachment>
-            SoftwareVersionAttachments
-        { get; set; }
-
-        /// <summary>
-        /// 软件安装包下载历史。
-        /// </summary>
-        public DbSet<DownloadRecord> DownloadRecords { get; set; }
-
-        /// <summary>
-        /// 工单 SLA 配置规则。
-        /// </summary>
-        public DbSet<TicketSlaRule> TicketSlaRules { get; set; }
-
-        /// <summary>
-        /// 站内通知。
-        /// </summary>
+        public DbSet<Customer> Customers { get; set; } = null!;
+        public DbSet<Software> Softwares { get; set; } = null!;
+        public DbSet<SoftwareVersion> SoftwareVersions { get; set; } = null!;
+        public DbSet<User> Users { get; set; } = null!;
+        public DbSet<CustomerSoftware> CustomerSoftwares { get; set; } = null!;
+        public DbSet<ClientInstallation> ClientInstallations { get; set; } = null!;
+        public DbSet<ClientActivationCode> ClientActivationCodes { get; set; } = null!;
+        public DbSet<Ticket> Tickets { get; set; } = null!;
+        public DbSet<TicketRecord> TicketRecords { get; set; } = null!;
+        public DbSet<TicketAttachment> TicketAttachments { get; set; } = null!;
+        public DbSet<SoftwareVersionAttachment> SoftwareVersionAttachments { get; set; } = null!;
+        public DbSet<DownloadRecord> DownloadRecords { get; set; } = null!;
+        public DbSet<TicketSlaRule> TicketSlaRules { get; set; } = null!;
         public DbSet<Notification> Notifications { get; set; } = null!;
-
-        /// <summary>
-        /// 软件版本与客户发布范围关系。
-        /// </summary>
-        public DbSet<SoftwareVersionCustomer> SoftwareVersionCustomers
-        { get; set; } = null!;
-
-        /// <summary>
-        /// 系统用户与外部通知平台账号的绑定关系。
-        /// </summary>
-        public DbSet<ExternalUserBinding>
-            ExternalUserBindings
-        { get; set; } = null!;
-
-        /// <summary>
-        /// 系统通知策略。
-        ///
-        /// 定义每一种业务事件
-        /// 应该如何进行通知。
-        /// </summary>
-        public DbSet<NotificationPolicy>
-            NotificationPolicies
-        { get; set; } = null!;
-
-
-        /// <summary>
-        /// 通知策略对应的外部渠道配置。
-        /// </summary>
-        public DbSet<NotificationPolicyChannel>
-            NotificationPolicyChannels
-        { get; set; } = null!;
-
-
-        /// <summary>
-        /// 客户端自动更新凭证。
-        /// </summary>
-        public DbSet<ClientUpdateCredential>
-            ClientUpdateCredentials
-        { get; set; } = null!;
+        public DbSet<SoftwareVersionCustomer> SoftwareVersionCustomers { get; set; } = null!;
+        public DbSet<ExternalUserBinding> ExternalUserBindings { get; set; } = null!;
+        public DbSet<NotificationPolicy> NotificationPolicies { get; set; } = null!;
+        public DbSet<NotificationPolicyChannel> NotificationPolicyChannels { get; set; } = null!;
+        public DbSet<AuditLog> AuditLogs { get; set; } = null!;
+        public DbSet<SystemEventLog> SystemEventLogs { get; set; } = null!;
     }
 }

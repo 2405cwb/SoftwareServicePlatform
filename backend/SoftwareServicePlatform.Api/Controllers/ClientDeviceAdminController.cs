@@ -1,22 +1,10 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SoftwareServicePlatform.Api.Data;
-using SoftwareServicePlatform.Api.Models;
 
 namespace SoftwareServicePlatform.Api.Controllers
 {
-    /// <summary>
-    /// 管理员查看和管理客户的设备级自动更新授权。
-    ///
-    /// 这里管理的是 ClientInstallation：
-    /// “一家公司 + 一款软件”下面可以有多台安装设备，
-    /// 每台设备拥有自己的 UpdateToken。
-    ///
-    /// 注意：
-    /// 停用这里只会禁止该设备继续检查/下载自动更新，
-    /// 不会限制客户启动或正常使用业务软件。
-    /// </summary>
     [ApiController]
     [Route("api/client-device-admin")]
     [Authorize(Roles = "Admin")]
@@ -29,181 +17,232 @@ namespace SoftwareServicePlatform.Api.Controllers
             _dbContext = dbContext;
         }
 
-        /// <summary>
-        /// 查看所有“客户 + 软件”授权关系，以及各自已经激活的更新设备数量。
-        ///
-        /// GET /api/client-device-admin/bindings
-        /// </summary>
         [HttpGet("bindings")]
         public async Task<IActionResult> GetBindings(
             CancellationToken cancellationToken)
         {
-            var result = await _dbContext.CustomerSoftwares
-                .AsNoTracking()
-                .Include(x => x.Customer)
-                .Include(x => x.Software)
-                .OrderBy(x => x.Customer!.Name)
-                .ThenBy(x => x.Software!.Name)
-                .Select(x => new
-                {
-                    customerSoftwareId = x.Id,
-
-                    customerId = x.CustomerId,
-                    customerName = x.Customer == null
-                        ? "-"
-                        : x.Customer.Name,
-                    customerCode = x.Customer == null
-                        ? "-"
-                        : x.Customer.Code,
-                    customerEnabled = x.Customer != null
-                        && x.Customer.IsEnabled,
-
-                    softwareId = x.SoftwareId,
-                    softwareName = x.Software == null
-                        ? "-"
-                        : x.Software.Name,
-                    softwareCode = x.Software == null
-                        ? "-"
-                        : x.Software.Code,
-                    softwareEnabled = x.Software != null
-                        && x.Software.IsEnabled,
-
-                    bindingEnabled = x.IsEnabled,
-
-                    deviceCount = x.ClientInstallations.Count(),
-                    enabledDeviceCount = x.ClientInstallations
-                        .Count(d => d.IsEnabled),
-                    disabledDeviceCount = x.ClientInstallations
-                        .Count(d => !d.IsEnabled),
-
-                    /*
-                     * 最近一次任意设备使用 UpdateToken 的时间。
-                     * 没有设备或从未检查更新时为 null。
-                     */
-                    lastUsedAt = x.ClientInstallations
-                        .OrderByDescending(d => d.LastUsedAt)
-                        .Select(d => d.LastUsedAt)
-                        .FirstOrDefault()
-                })
-                .ToListAsync(cancellationToken);
+            var result =
+                await _dbContext.CustomerSoftwares
+                    .AsNoTracking()
+                    .Include(x => x.Customer)
+                    .Include(x => x.Software)
+                    .OrderBy(x => x.Customer!.Name)
+                    .ThenBy(x => x.Software!.Name)
+                    .Select(x => new
+                    {
+                        customerSoftwareId = x.Id,
+                        customerId = x.CustomerId,
+                        customerName = x.Customer == null ? "-" : x.Customer.Name,
+                        customerCode = x.Customer == null ? "-" : x.Customer.Code,
+                        customerEnabled = x.Customer != null && x.Customer.IsEnabled,
+                        softwareId = x.SoftwareId,
+                        softwareName = x.Software == null ? "-" : x.Software.Name,
+                        softwareCode = x.Software == null ? "-" : x.Software.Code,
+                        softwareEnabled = x.Software != null && x.Software.IsEnabled,
+                        bindingEnabled = x.IsEnabled,
+                        maxDeviceCount = x.MaxDeviceCount,
+                        deviceCount = x.ClientInstallations.Count(),
+                        enabledDeviceCount = x.ClientInstallations.Count(d => d.IsEnabled),
+                        disabledDeviceCount = x.ClientInstallations.Count(d => !d.IsEnabled),
+                        lastUsedAt = x.ClientInstallations
+                            .OrderByDescending(d => d.LastUsedAt)
+                            .Select(d => d.LastUsedAt)
+                            .FirstOrDefault()
+                    })
+                    .ToListAsync(cancellationToken);
 
             return Ok(result);
         }
 
-        /// <summary>
-        /// 查看某一个“客户 + 软件”授权下面的全部更新设备。
-        ///
-        /// GET /api/client-device-admin/bindings/{customerSoftwareId}/devices
-        /// </summary>
         [HttpGet("bindings/{customerSoftwareId:int}/devices")]
         public async Task<IActionResult> GetDevices(
             int customerSoftwareId,
             CancellationToken cancellationToken)
         {
-            var binding = await _dbContext.CustomerSoftwares
-                .AsNoTracking()
-                .Include(x => x.Customer)
-                .Include(x => x.Software)
-                .FirstOrDefaultAsync(
-                    x => x.Id == customerSoftwareId,
-                    cancellationToken);
+            var binding =
+                await _dbContext.CustomerSoftwares
+                    .AsNoTracking()
+                    .Include(x => x.Customer)
+                    .Include(x => x.Software)
+                    .FirstOrDefaultAsync(
+                        x => x.Id == customerSoftwareId,
+                        cancellationToken);
 
             if (binding == null)
             {
                 return NotFound("客户软件授权关系不存在");
             }
 
-            var devices = await _dbContext
-                .Set<ClientInstallation>()
-                .AsNoTracking()
-                .Where(x => x.CustomerSoftwareId == customerSoftwareId)
-                .OrderByDescending(x => x.ActivatedAt)
-                .Select(x => new
-                {
-                    x.Id,
-                    x.InstallationId,
-                    x.DeviceName,
-                    x.TokenPrefix,
-                    x.IsEnabled,
-                    x.ActivatedAt,
-                    x.LastUsedAt,
-                    x.UpdatedAt
-                })
-                .ToListAsync(cancellationToken);
+            var devices =
+                await _dbContext.ClientInstallations
+                    .AsNoTracking()
+                    .Where(x => x.CustomerSoftwareId == customerSoftwareId)
+                    .OrderByDescending(x => x.ActivatedAt)
+                    .Select(x => new
+                    {
+                        x.Id,
+                        x.InstallationId,
+                        x.DeviceName,
+                        x.Remark,
+                        x.TokenPrefix,
+                        x.IsEnabled,
+                        x.ActivatedAt,
+                        x.LastUsedAt,
+                        x.UpdatedAt
+                    })
+                    .ToListAsync(cancellationToken);
 
             return Ok(new
             {
                 customerSoftwareId = binding.Id,
                 customerId = binding.CustomerId,
-                customerName = binding.Customer == null
-                    ? "-"
-                    : binding.Customer.Name,
-                customerCode = binding.Customer == null
-                    ? "-"
-                    : binding.Customer.Code,
+                customerName = binding.Customer?.Name ?? "-",
+                customerCode = binding.Customer?.Code ?? "-",
                 softwareId = binding.SoftwareId,
-                softwareName = binding.Software == null
-                    ? "-"
-                    : binding.Software.Name,
-                softwareCode = binding.Software == null
-                    ? "-"
-                    : binding.Software.Code,
+                softwareName = binding.Software?.Name ?? "-",
+                softwareCode = binding.Software?.Code ?? "-",
                 bindingEnabled = binding.IsEnabled,
+                maxDeviceCount = binding.MaxDeviceCount,
+                enabledDeviceCount = devices.Count(x => x.IsEnabled),
                 devices
             });
         }
 
-        /// <summary>
-        /// 管理员停用一台设备的自动更新权限。
-        ///
-        /// POST /api/client-device-admin/devices/{id}/revoke
-        /// </summary>
-        [HttpPost("devices/{id:int}/revoke")]
-        public Task<IActionResult> RevokeDevice(
-            int id,
+        [HttpPut("bindings/{customerSoftwareId:int}/device-limit")]
+        public async Task<IActionResult> SetDeviceLimit(
+            int customerSoftwareId,
+            SetDeviceLimitRequest request,
             CancellationToken cancellationToken)
         {
-            return SetDeviceEnabled(
-                id,
-                false,
-                cancellationToken);
+            if (request.MaxDeviceCount < 0 || request.MaxDeviceCount > 9999)
+            {
+                return BadRequest("设备上限必须在 0～9999 之间，0 表示不限制");
+            }
+
+            var binding =
+                await _dbContext.CustomerSoftwares
+                    .FirstOrDefaultAsync(
+                        x => x.Id == customerSoftwareId,
+                        cancellationToken);
+
+            if (binding == null)
+            {
+                return NotFound("客户软件授权关系不存在");
+            }
+
+            binding.MaxDeviceCount = request.MaxDeviceCount;
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            var activeCount =
+                await _dbContext.ClientInstallations
+                    .CountAsync(
+                        x => x.CustomerSoftwareId == customerSoftwareId
+                             && x.IsEnabled,
+                        cancellationToken);
+
+            return Ok(new
+            {
+                message = request.MaxDeviceCount == 0
+                    ? "更新设备数量已设置为不限制"
+                    : $"更新设备上限已设置为 {request.MaxDeviceCount} 台",
+                activeDeviceCount = activeCount,
+                maxDeviceCount = request.MaxDeviceCount
+            });
         }
 
-        /// <summary>
-        /// 管理员重新启用一台设备的自动更新权限。
-        ///
-        /// POST /api/client-device-admin/devices/{id}/enable
-        /// </summary>
-        [HttpPost("devices/{id:int}/enable")]
-        public Task<IActionResult> EnableDevice(
+        [HttpPut("devices/{id:int}")]
+        public async Task<IActionResult> UpdateDevice(
             int id,
+            UpdateDeviceAdminRequest request,
             CancellationToken cancellationToken)
         {
-            return SetDeviceEnabled(
-                id,
-                true,
-                cancellationToken);
-        }
-
-        private async Task<IActionResult> SetDeviceEnabled(
-            int id,
-            bool enabled,
-            CancellationToken cancellationToken)
-        {
-            var device = await _dbContext
-                .Set<ClientInstallation>()
-                .FirstOrDefaultAsync(
-                    x => x.Id == id,
-                    cancellationToken);
+            var device =
+                await _dbContext.ClientInstallations
+                    .FirstOrDefaultAsync(
+                        x => x.Id == id,
+                        cancellationToken);
 
             if (device == null)
             {
                 return NotFound("更新设备不存在");
             }
 
-            device.IsEnabled = enabled;
+            var name = (request.DeviceName ?? string.Empty).Trim();
+            var remark = (request.Remark ?? string.Empty).Trim();
+
+            if (name.Length > 100)
+            {
+                return BadRequest("设备名称不能超过100个字符");
+            }
+
+            if (remark.Length > 500)
+            {
+                return BadRequest("设备备注不能超过500个字符");
+            }
+
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                device.DeviceName = name;
+            }
+
+            device.Remark = remark;
             device.UpdatedAt = DateTime.UtcNow;
 
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return NoContent();
+        }
+
+        [HttpPost("devices/{id:int}/revoke")]
+        public Task<IActionResult> RevokeDevice(
+            int id,
+            CancellationToken cancellationToken)
+            => SetDeviceEnabled(id, false, cancellationToken);
+
+        [HttpPost("devices/{id:int}/enable")]
+        public Task<IActionResult> EnableDevice(
+            int id,
+            CancellationToken cancellationToken)
+            => SetDeviceEnabled(id, true, cancellationToken);
+
+        private async Task<IActionResult> SetDeviceEnabled(
+            int id,
+            bool enabled,
+            CancellationToken cancellationToken)
+        {
+            var device =
+                await _dbContext.ClientInstallations
+                    .Include(x => x.CustomerSoftware)
+                    .FirstOrDefaultAsync(
+                        x => x.Id == id,
+                        cancellationToken);
+
+            if (device == null)
+            {
+                return NotFound("更新设备不存在");
+            }
+
+            if (enabled
+                && device.CustomerSoftware != null
+                && device.CustomerSoftware.MaxDeviceCount > 0)
+            {
+                var activeCount =
+                    await _dbContext.ClientInstallations
+                        .CountAsync(
+                            x => x.CustomerSoftwareId == device.CustomerSoftwareId
+                                 && x.IsEnabled
+                                 && x.Id != device.Id,
+                            cancellationToken);
+
+                if (activeCount >= device.CustomerSoftware.MaxDeviceCount)
+                {
+                    return BadRequest(
+                        $"当前启用设备数已达到上限 "
+                        + $"{device.CustomerSoftware.MaxDeviceCount} 台");
+                }
+            }
+
+            device.IsEnabled = enabled;
+            device.UpdatedAt = DateTime.UtcNow;
             await _dbContext.SaveChangesAsync(cancellationToken);
 
             return Ok(new
@@ -213,5 +252,16 @@ namespace SoftwareServicePlatform.Api.Controllers
                     : "已停用该设备的自动更新权限"
             });
         }
+    }
+
+    public sealed class SetDeviceLimitRequest
+    {
+        public int MaxDeviceCount { get; set; }
+    }
+
+    public sealed class UpdateDeviceAdminRequest
+    {
+        public string DeviceName { get; set; } = string.Empty;
+        public string Remark { get; set; } = string.Empty;
     }
 }

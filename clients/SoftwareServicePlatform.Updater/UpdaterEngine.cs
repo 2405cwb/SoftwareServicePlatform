@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -1131,6 +1131,22 @@ namespace SoftwareServicePlatform.Updater
              * 它只保留“本次发生变化/删除”的旧文件，
              * 方便现场出现问题时人工恢复。
              */
+            /*
+             * Updater 自更新采用“两阶段”方案：
+             *
+             * 目标版本 ZIP 如果包含：
+             *
+             * .updater-self/SoftwareServicePlatform.Updater.exe
+             *
+             * 当前 Updater 不直接覆盖正在运行的自己，
+             * 而是启动独立 UpdaterBootstrap，
+             * 等本进程退出后再完成替换。
+             */
+            if (TryStartUpdaterSelfUpdate())
+            {
+                return;
+            }
+
             if (
                 _config.RestartAfterUpdate
             )
@@ -1396,6 +1412,151 @@ namespace SoftwareServicePlatform.Updater
 
                 await waitTask;
             }
+        }
+
+
+        /// <summary>
+        /// 检测并启动 Updater 自更新。
+        ///
+        /// 约定：
+        ///
+        /// AppRoot/.updater-self/SoftwareServicePlatform.Updater.exe
+        ///     待安装的新 Updater。
+        ///
+        /// AppRoot/updater/SoftwareServicePlatform.UpdaterBootstrap.exe
+        ///     独立的两阶段替换程序。
+        /// </summary>
+        private bool TryStartUpdaterSelfUpdate()
+        {
+            var source =
+                GetSafeAppPath(
+                    Path.Combine(
+                        ".updater-self",
+                        "SoftwareServicePlatform.Updater.exe"
+                    )
+                );
+
+            if (!File.Exists(source))
+            {
+                return false;
+            }
+
+            var bootstrap =
+                GetSafeAppPath(
+                    Path.Combine(
+                        "updater",
+                        "SoftwareServicePlatform.UpdaterBootstrap.exe"
+                    )
+                );
+
+            var target =
+                GetSafeAppPath(
+                    Path.Combine(
+                        "updater",
+                        "SoftwareServicePlatform.Updater.exe"
+                    )
+                );
+
+            if (!File.Exists(bootstrap))
+            {
+                /*
+                 * Bootstrap 缺失不能把已经成功的业务更新判为失败。
+                 * 新 Updater 会继续保留在 .updater-self，
+                 * 现场仍可人工替换或下次版本继续处理。
+                 */
+                Log(
+                    "检测到 Updater 自更新文件，但缺少 "
+                    + "SoftwareServicePlatform.UpdaterBootstrap.exe，"
+                    + "本次跳过 Updater 自更新。"
+                );
+
+                return false;
+            }
+
+            try
+            {
+                var arguments =
+                    "--wait-pid "
+                    + Environment.ProcessId
+                    + " --source "
+                    + QuoteProcessArgument(source)
+                    + " --target "
+                    + QuoteProcessArgument(target)
+                    + " --app-root "
+                    + QuoteProcessArgument(_appRoot);
+
+                if (
+                    _config.RestartAfterUpdate
+                    &&
+                    !string.IsNullOrWhiteSpace(
+                        _config.MainExecutable)
+                )
+                {
+                    var mainExecutable =
+                        GetSafeAppPath(
+                            _config.MainExecutable
+                        );
+
+                    arguments +=
+                        " --restart-main "
+                        + QuoteProcessArgument(
+                            mainExecutable
+                        );
+                }
+
+                Process.Start(
+                    new ProcessStartInfo
+                    {
+                        FileName = bootstrap,
+                        Arguments = arguments,
+                        WorkingDirectory =
+                            Path.GetDirectoryName(
+                                bootstrap
+                            )
+                            ?? _appRoot,
+                        UseShellExecute = true
+                    }
+                );
+
+                Log(
+                    "已启动 UpdaterBootstrap，"
+                    + "当前 Updater 退出后将自动替换自身。"
+                );
+
+                ReportProgress(
+                    "业务程序更新完成，正在准备更新更新器...",
+                    1,
+                    1,
+                    "SoftwareServicePlatform.Updater.exe"
+                );
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                /*
+                 * Updater 自更新失败不覆盖业务软件已经成功更新的结果。
+                 */
+                Log(
+                    "启动 UpdaterBootstrap 失败："
+                    + ex.Message
+                );
+
+                return false;
+            }
+        }
+
+
+        private static string QuoteProcessArgument(
+            string value)
+        {
+            return "\""
+                + (value ?? string.Empty)
+                    .Replace(
+                        "\"",
+                        "\\\""
+                    )
+                + "\"";
         }
 
 
