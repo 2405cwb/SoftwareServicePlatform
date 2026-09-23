@@ -234,12 +234,12 @@ function MySoftwarePage() {
   }
 
   /**
-   * 为当前客户的一款软件生成一次性激活码。
+   * 为当前客户的一款软件生成一次性更新激活码。
    *
    * 注意：
    * 这不是 UpdateToken。
-   * 激活码只使用一次，真正的设备 UpdateToken
-   * 会在桌面软件激活成功后由服务器返回给该设备。
+   * 更新激活码只使用一次，真正的设备 UpdateToken
+   * 会在桌面软件完成更新授权后由服务器返回给该设备。
    */
   async function generateActivationCode(software: MySoftware) {
     try {
@@ -252,13 +252,13 @@ function MySoftwarePage() {
 
       if (!response.ok) {
         const text = await response.text();
-        throw new Error(text || `生成激活码失败：${response.status}`);
+        throw new Error(text || `生成更新激活码失败：${response.status}`);
       }
 
       setActivationResult((await response.json()) as ActivationCodeResult);
     } catch (error) {
-      console.error("生成激活码失败：", error);
-      alert(error instanceof Error ? error.message : "生成激活码失败");
+      console.error("生成更新激活码失败：", error);
+      alert(error instanceof Error ? error.message : "生成更新激活码失败");
     } finally {
       setActivationLoadingId(null);
     }
@@ -271,9 +271,9 @@ function MySoftwarePage() {
 
     try {
       await navigator.clipboard.writeText(activationResult.activationCode);
-      alert("激活码已复制");
+      alert("更新激活码已复制");
     } catch {
-      alert("浏览器未允许自动复制，请手工复制激活码");
+      alert("浏览器未允许自动复制，请手工复制更新激活码");
     }
   }
 
@@ -460,8 +460,8 @@ function MySoftwarePage() {
 
               {/*
                * 设备激活与软件下载分开。
-               * 下载完整安装包并不代表每次都要重新申请激活码；
-               * 只有一台新设备第一次安装时才需要激活一次。
+               * 下载完整安装包并不代表每次都要重新申请更新激活码；
+               * 只有一台新设备第一次安装时才需要进行一次更新授权。
                */}
               <div
                 className="my-version-actions"
@@ -476,7 +476,7 @@ function MySoftwarePage() {
                   <KeyRound size={14} />
                   {activationLoadingId === software.softwareId
                     ? "生成中..."
-                    : "获取激活码"}
+                    : "获取更新激活码"}
                 </button>
 
                 <button
@@ -485,7 +485,7 @@ function MySoftwarePage() {
                   onClick={() => void openDeviceManager(software)}
                 >
                   <Monitor size={14} />
-                  设备管理
+                  更新设备管理
                 </button>
               </div>
 
@@ -622,7 +622,7 @@ function MySoftwarePage() {
           <div className="version-attachment-dialog" style={{ maxWidth: 560 }}>
             <div className="version-attachment-header">
               <div>
-                <h3>一次性激活码</h3>
+                <h3>一次性更新激活码</h3>
                 <p>
                   {activationResult.softwareName} · {activationResult.softwareCode}
                 </p>
@@ -645,7 +645,7 @@ function MySoftwarePage() {
                 marginTop: 12,
               }}
             >
-              激活码只用于一台新设备首次激活，成功使用后立即失效。它不是长期 UpdateToken。
+              更新激活码只用于为一台新设备开通自动更新权限，成功使用后立即失效。它不是软件注册码，也不会影响软件正常使用。
             </div>
 
             <div
@@ -672,7 +672,7 @@ function MySoftwarePage() {
                 onClick={() => void copyActivationCode()}
               >
                 <Copy size={15} />
-                复制激活码
+                复制更新激活码
               </button>
               <button
                 type="button"
@@ -691,7 +691,7 @@ function MySoftwarePage() {
           <div className="version-attachment-dialog" style={{ maxWidth: 760 }}>
             <div className="version-attachment-header">
               <div>
-                <h3>设备管理</h3>
+                <h3>更新设备管理</h3>
                 <p>
                   {deviceSoftware.softwareName} · {deviceSoftware.softwareCode}
                 </p>
@@ -712,7 +712,7 @@ function MySoftwarePage() {
               <div className="my-software-message">正在加载设备...</div>
             ) : devices.length === 0 ? (
               <div className="my-software-empty">
-                暂无已激活设备。新电脑安装软件后，使用一次性激活码完成首次激活。
+                暂无已授权更新设备。新电脑安装软件后，使用一次性更新激活码开通自动更新即可。
               </div>
             ) : (
               <div style={{ display: "grid", gap: 12 }}>
@@ -758,7 +758,7 @@ function MySoftwarePage() {
                           onClick={() => void revokeDevice(device)}
                         >
                           <ShieldOff size={14} />
-                          {revokingDeviceId === device.id ? "处理中..." : "停用"}
+                          {revokingDeviceId === device.id ? "处理中..." : "停用更新"}
                         </button>
                       )}
                     </div>

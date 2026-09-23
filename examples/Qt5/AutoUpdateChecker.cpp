@@ -1,4 +1,4 @@
-#include "AutoUpdateChecker.h"
+﻿#include "AutoUpdateChecker.h"
 #include "ActivationCodeDialog.h"
 
 #include <QCoreApplication>
@@ -131,7 +131,7 @@ namespace
      * %LOCALAPPDATA%\SoftwareServicePlatform\UpdaterConfigs\<softwareCode>\updater.json
      *
      * 这样即使业务软件安装在 Program Files，
-     * 首次激活也不需要管理员权限才能保存设备 Token。
+     * 首次更新授权也不需要管理员权限才能保存设备 Token。
      */
     QString getWritableConfigPath(
         const QString &softwareCode)
@@ -601,7 +601,7 @@ void AutoUpdateChecker::checkForUpdates(
 
     /*
      * 第一优先级：
-     * 新版设备激活后保存在 LocalAppData 的 updater.json。
+     * 新版设备更新授权后保存在 LocalAppData 的 updater.json。
      */
     if (bootstrapValid)
     {
@@ -633,7 +633,7 @@ void AutoUpdateChecker::checkForUpdates(
      * 第二优先级：兼容已经部署出去的旧版客户端。
      *
      * 如果 updater/updater.json 仍然存在并且包含旧共享 Token，
-     * 继续允许它检查更新，不要求客户立刻重新激活。
+     * 继续允许它检查更新，不要求客户立刻重新授权更新。
      */
     const QString legacyConfigPath =
         QDir(updaterDirectory)
@@ -660,7 +660,7 @@ void AutoUpdateChecker::checkForUpdates(
     }
 
     /*
-     * 没有可用 Token 时必须依赖 bootstrap 做首次激活。
+     * 没有可用 Token 时必须依赖 bootstrap 做首次更新授权。
      */
     if (!bootstrapValid)
     {
@@ -670,7 +670,7 @@ void AutoUpdateChecker::checkForUpdates(
         {
             message =
                 QStringLiteral(
-                    "找不到首次激活配置文件：\n")
+                    "找不到首次更新授权配置文件：\n")
                 + bootstrapPath;
         }
         else
@@ -684,7 +684,7 @@ void AutoUpdateChecker::checkForUpdates(
 
         QMessageBox::warning(
             parentWidget,
-            QStringLiteral("软件激活"),
+            QStringLiteral("设备更新授权"),
             message);
 
         return;
@@ -784,8 +784,8 @@ void AutoUpdateChecker::checkForUpdates(
 
                 QMessageBox::warning(
                     parentWidget,
-                    QStringLiteral("软件激活"),
-                    QStringLiteral("软件激活失败：\n")
+                    QStringLiteral("设备更新授权"),
+                    QStringLiteral("设备更新授权失败：\n")
                     + detail);
 
                 return;
@@ -804,9 +804,9 @@ void AutoUpdateChecker::checkForUpdates(
             {
                 QMessageBox::warning(
                     parentWidget,
-                    QStringLiteral("软件激活"),
+                    QStringLiteral("设备更新授权"),
                     QStringLiteral(
-                        "软件激活失败：服务器返回格式无效。"));
+                        "设备更新授权失败：服务器返回格式无效。"));
 
                 return;
             }
@@ -824,9 +824,9 @@ void AutoUpdateChecker::checkForUpdates(
             {
                 QMessageBox::warning(
                     parentWidget,
-                    QStringLiteral("软件激活"),
+                    QStringLiteral("设备更新授权"),
                     QStringLiteral(
-                        "软件激活失败：服务器没有返回更新凭证。"));
+                        "设备更新授权失败：服务器没有返回更新凭证。"));
 
                 return;
             }
@@ -845,7 +845,7 @@ void AutoUpdateChecker::checkForUpdates(
             {
                 QMessageBox::warning(
                     parentWidget,
-                    QStringLiteral("软件激活"),
+                    QStringLiteral("设备更新授权"),
                     saveError);
 
                 return;
@@ -859,9 +859,9 @@ void AutoUpdateChecker::checkForUpdates(
 
             QMessageBox::information(
                 parentWidget,
-                QStringLiteral("软件激活"),
+                QStringLiteral("设备更新授权"),
                 QStringLiteral(
-                    "软件激活成功。\n\n设备：%1")
+                    "设备更新授权成功。\n\n设备：%1")
                     .arg(
                         responseDeviceName.isEmpty()
                         ? deviceName

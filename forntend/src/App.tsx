@@ -23,6 +23,7 @@ import SlaSettingsPage from "./pages/SlaSettingsPage";
 import NotificationSettingsPage from "./pages/NotificationSettingsPage";
 import ClientUpdatePage from "./pages/ClientUpdatePage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
+import ClientDeviceAdminPage from "./pages/ClientDeviceAdminPage";
 
 function App() {
   return (
@@ -54,6 +55,7 @@ function App() {
 
             <Route element={<RequireRole allowedRoles={["Admin"]} />}>
               <Route path="/users" element={<UserPage />} />
+              <Route path="/client-devices" element={<ClientDeviceAdminPage />} />
               <Route path="/sla-settings" element={<SlaSettingsPage />} />
               <Route
                 path="/notification-settings"

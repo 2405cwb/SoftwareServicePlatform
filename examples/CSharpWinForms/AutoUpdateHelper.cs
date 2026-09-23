@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
@@ -14,7 +14,7 @@ namespace YourApplication
     ///
     /// 新流程：
     /// 1. 安装包只携带非敏感的 updater.bootstrap.json；
-    /// 2. 第一次启动如果没有 updater.json，就提示客户输入一次性激活码；
+    /// 2. 第一次启动如果没有 updater.json，就提示客户输入一次性更新激活码；
     /// 3. 激活成功后服务器给“这一台安装实例”签发独立 UpdateToken；
     /// 4. 客户端自动生成 updater.json；
     /// 5. 以后启动直接使用设备自己的 UpdateToken 检查更新。
@@ -39,7 +39,7 @@ namespace YourApplication
                     updaterExePath);
 
                 /*
-                 * 用户取消首次激活、bootstrap 配置缺失，
+                 * 用户取消首次更新授权、bootstrap 配置缺失，
                  * 或激活失败时，不阻止业务软件正常启动。
                  */
                 if (config == null)
@@ -191,7 +191,7 @@ namespace YourApplication
 
         /// <summary>
         /// 优先读取已经激活后生成的 updater.json。
-        /// 如果不存在，则尝试执行第一次激活。
+        /// 如果不存在，则尝试执行第一次更新授权。
         /// </summary>
         private static async Task<UpdaterConfig> LoadOrActivateUpdaterConfigAsync(
             IWin32Window owner,
@@ -228,7 +228,7 @@ namespace YourApplication
              * 放到当前 Windows 用户可写的 LocalAppData。
              *
              * 这样即使软件安装在 C:\Program Files，
-             * 普通用户第一次激活时也不会因为没有写权限而失败。
+             * 普通用户第一次更新授权时也不会因为没有写权限而失败。
              */
             string configPath = null;
 
@@ -279,8 +279,8 @@ namespace YourApplication
             {
                 MessageBox.Show(
                     owner,
-                    "首次激活配置读取失败：\r\n" + ex.Message,
-                    "软件激活",
+                    "更新授权配置读取失败：\r\n" + ex.Message,
+                    "设备更新授权",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Warning);
 
@@ -296,7 +296,7 @@ namespace YourApplication
                 MessageBox.Show(
                     owner,
                     "updater.bootstrap.json 配置不完整。",
-                    "软件激活",
+                    "设备更新授权",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Warning);
 
@@ -340,8 +340,8 @@ namespace YourApplication
                     {
                         MessageBox.Show(
                             owner,
-                            "软件激活失败：\r\n" + responseText,
-                            "软件激活",
+                            "设备更新授权失败：\r\n" + responseText,
+                            "设备更新授权",
                             MessageBoxButtons.OK,
                             MessageBoxIcon.Warning);
 
@@ -355,8 +355,8 @@ namespace YourApplication
                     {
                         MessageBox.Show(
                             owner,
-                            "软件激活失败：服务器没有返回更新凭证。",
-                            "软件激活",
+                            "设备更新授权失败：服务器没有返回更新凭证。",
+                            "设备更新授权",
                             MessageBoxButtons.OK,
                             MessageBoxIcon.Warning);
 
@@ -399,11 +399,11 @@ namespace YourApplication
 
                     MessageBox.Show(
                         owner,
-                        "软件激活成功。\r\n\r\n设备："
+                        "设备更新授权成功。\r\n\r\n设备："
                         + (string.IsNullOrWhiteSpace(result.deviceName)
                             ? Environment.MachineName
                             : result.deviceName),
-                        "软件激活",
+                        "设备更新授权",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Information);
 
@@ -414,8 +414,8 @@ namespace YourApplication
             {
                 MessageBox.Show(
                     owner,
-                    "软件激活失败：\r\n" + ex.Message,
-                    "软件激活",
+                    "设备更新授权失败：\r\n" + ex.Message,
+                    "设备更新授权",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Warning);
 

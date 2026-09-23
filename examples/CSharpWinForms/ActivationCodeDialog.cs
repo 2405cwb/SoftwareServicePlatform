@@ -1,14 +1,14 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.Windows.Forms;
 
 namespace YourApplication
 {
     /// <summary>
-    /// 第一次安装时输入一次性激活码的小窗口。
+    /// 第一次安装时输入一次性更新激活码的小窗口。
     ///
     /// 不要求客户填写 serverUrl / softwareCode / UpdateToken，
-    /// 客户只需要从软件服务平台“我的软件”页面复制一次性激活码。
+    /// 客户只需要从软件服务平台“我的软件”页面复制一次性更新激活码。
     /// </summary>
     internal sealed class ActivationCodeDialog : Form
     {
@@ -21,7 +21,7 @@ namespace YourApplication
 
         public ActivationCodeDialog()
         {
-            Text = "软件首次激活";
+            Text = "设备更新授权";
             StartPosition = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -34,7 +34,7 @@ namespace YourApplication
                 AutoSize = true,
                 Font = new Font(Font, FontStyle.Bold),
                 Location = new Point(24, 22),
-                Text = "请输入一次性激活码"
+                Text = "请输入一次性更新激活码"
             };
 
             var lblTip = new Label
@@ -42,7 +42,7 @@ namespace YourApplication
                 AutoSize = false,
                 Location = new Point(24, 52),
                 Size = new Size(380, 42),
-                Text = "请登录软件服务平台，在“我的软件”中点击“获取激活码”。\r\n激活成功后本机将自动保存独立更新凭证。"
+                Text = "请登录软件服务平台，在“我的软件”中点击“获取更新激活码”。\r\n此授权只用于自动更新，不影响软件正常使用。"
             };
 
             _txtCode = new TextBox
@@ -55,7 +55,7 @@ namespace YourApplication
 
             var btnActivate = new Button
             {
-                Text = "激活",
+                Text = "确认授权",
                 DialogResult = DialogResult.OK,
                 Location = new Point(238, 145),
                 Size = new Size(78, 30)

@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SoftwareServicePlatform.Api.Data;
@@ -13,7 +13,7 @@ namespace SoftwareServicePlatform.Api.Controllers
     ///
     /// 设计：
     /// CustomerSoftware = 公司级软件授权；
-    /// ClientActivationCode = 一次性激活码；
+    /// ClientActivationCode = 一次性更新激活码；
     /// ClientInstallation = 一台设备上的一个安装实例；
     /// 每个 ClientInstallation 都拥有自己独立的 UpdateToken。
     /// </summary>
@@ -31,7 +31,7 @@ namespace SoftwareServicePlatform.Api.Controllers
         }
 
         /// <summary>
-        /// 客户在网页端为自己已经授权的软件生成一次性激活码。
+        /// 客户在网页端为自己已经授权的软件生成一次性更新激活码。
         ///
         /// POST /api/client-activation/software/{softwareId}/code
         /// </summary>
@@ -71,7 +71,7 @@ namespace SoftwareServicePlatform.Api.Controllers
                 || !binding.Software.AllowDownload
             )
             {
-                return BadRequest("当前客户或软件授权不可用，不能生成激活码");
+                return BadRequest("当前客户或软件授权不可用，不能生成更新激活码");
             }
 
             var clearCode = ClientActivationCodeService.GenerateCode();
@@ -95,7 +95,7 @@ namespace SoftwareServicePlatform.Api.Controllers
             await _dbContext.SaveChangesAsync(cancellationToken);
 
             /*
-             * 明文激活码只在这里返回一次。
+             * 明文更新激活码只在这里返回一次。
              * 数据库只保存 SHA256，关闭弹窗后服务器无法恢复明文。
              */
             return Ok(new
@@ -105,7 +105,7 @@ namespace SoftwareServicePlatform.Api.Controllers
                 softwareId = binding.SoftwareId,
                 softwareCode = binding.Software.Code,
                 softwareName = binding.Software.Name,
-                message = "一次性激活码已生成，请在24小时内用于一台新设备。"
+                message = "一次性更新激活码已生成，请在24小时内为一台新设备开通自动更新权限。"
             });
         }
 
@@ -201,7 +201,7 @@ namespace SoftwareServicePlatform.Api.Controllers
         }
 
         /// <summary>
-        /// 桌面软件第一次启动时使用一次性激活码换取设备 UpdateToken。
+        /// 桌面软件第一次启动时使用一次性更新激活码换取设备 UpdateToken。
         ///
         /// POST /api/client-activation/activate
         ///
@@ -216,7 +216,7 @@ namespace SoftwareServicePlatform.Api.Controllers
         {
             if (string.IsNullOrWhiteSpace(request.ActivationCode))
             {
-                return BadRequest("请输入激活码");
+                return BadRequest("请输入更新激活码");
             }
 
             if (string.IsNullOrWhiteSpace(request.SoftwareCode))
@@ -242,17 +242,17 @@ namespace SoftwareServicePlatform.Api.Controllers
 
             if (activationCode == null)
             {
-                return BadRequest("激活码无效");
+                return BadRequest("更新激活码无效");
             }
 
             if (activationCode.UsedAt.HasValue)
             {
-                return BadRequest("该激活码已经使用，请在网页端重新获取");
+                return BadRequest("该更新激活码已经使用，请在网页端重新获取");
             }
 
             if (activationCode.ExpiresAt <= now)
             {
-                return BadRequest("该激活码已经过期，请在网页端重新获取");
+                return BadRequest("该更新激活码已经过期，请在网页端重新获取");
             }
 
             var binding = activationCode.CustomerSoftware;
@@ -275,7 +275,7 @@ namespace SoftwareServicePlatform.Api.Controllers
                     request.SoftwareCode.Trim(),
                     StringComparison.OrdinalIgnoreCase))
             {
-                return BadRequest("激活码与当前软件不匹配");
+                return BadRequest("更新激活码与当前软件不匹配");
             }
 
             var updateToken = ClientUpdateTokenService.GenerateToken();
@@ -306,7 +306,7 @@ namespace SoftwareServicePlatform.Api.Controllers
             _dbContext.Set<ClientInstallation>().Add(installation);
 
             /*
-             * 激活码严格一次性使用。
+             * 更新激活码严格一次性使用。
              * 一旦生成设备 UpdateToken，就立即标记已使用。
              */
             activationCode.UsedAt = now;
@@ -322,7 +322,7 @@ namespace SoftwareServicePlatform.Api.Controllers
                 softwareCode = binding.Software.Code,
                 softwareName = binding.Software.Name,
                 customerName = binding.Customer.Name,
-                message = "软件激活成功"
+                message = "设备更新授权成功"
             });
         }
 

@@ -1,4 +1,4 @@
-#include "ActivationCodeDialog.h"
+﻿#include "ActivationCodeDialog.h"
 
 #include <QDialogButtonBox>
 #include <QFont>
@@ -12,7 +12,7 @@ ActivationCodeDialog::ActivationCodeDialog(
     : QDialog(parent)
 {
     setWindowTitle(
-        QStringLiteral("软件首次激活"));
+        QStringLiteral("设备更新授权"));
 
     setModal(true);
     setMinimumWidth(460);
@@ -38,7 +38,7 @@ ActivationCodeDialog::ActivationCodeDialog(
 
     QLabel *titleLabel =
         new QLabel(
-            QStringLiteral("请输入一次性激活码"),
+            QStringLiteral("请输入一次性更新激活码"),
             this);
 
     QFont titleFont =
@@ -53,8 +53,8 @@ ActivationCodeDialog::ActivationCodeDialog(
     QLabel *tipLabel =
         new QLabel(
             QStringLiteral(
-                "请登录软件服务平台，在“我的软件”中点击“获取激活码”。\n"
-                "激活成功后，本机将自动保存独立的更新凭证。"),
+                "请登录软件服务平台，在“我的软件”中点击“获取更新激活码”。\n"
+                "此授权只用于自动更新，不影响软件正常使用。"),
             this);
 
     tipLabel->setWordWrap(true);
@@ -74,8 +74,8 @@ ActivationCodeDialog::ActivationCodeDialog(
     m_codeEdit->setFont(codeFont);
 
     /*
-     * 激活码为了便于客户人工输入，界面统一显示为大写。
-     * 服务端本身也会标准化激活码，因此这里只是改善可读性。
+     * 更新激活码为了便于客户人工输入，界面统一显示为大写。
+     * 服务端本身也会标准化更新激活码，因此这里只是改善可读性。
      */
     connect(
         m_codeEdit,
@@ -108,7 +108,7 @@ ActivationCodeDialog::ActivationCodeDialog(
     buttons->button(
         QDialogButtonBox::Ok)
         ->setText(
-            QStringLiteral("激活"));
+            QStringLiteral("确认授权"));
 
     buttons->button(
         QDialogButtonBox::Cancel)
