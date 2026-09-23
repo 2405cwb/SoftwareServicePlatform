@@ -1,0 +1,9 @@
+{
+  "serverUrl": "https://ssp.cwb2405.cn",
+  "softwareCode": "ROAD_PROCESS",
+  "versionFile": "version.txt",
+  "mainExecutable": "YourApplication.exe",
+  "fallbackToFullInstaller": true,
+  "restartAfterUpdate": true,
+  "waitForProcessSeconds": 60
+}

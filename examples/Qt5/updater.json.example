@@ -1,10 +1,11 @@
 {
-  "serverUrl": "http://localhost:5108",
+  "_说明": "旧版兼容示例。新安装包不要复制本文件；新版客户端首次激活后会自动在 LocalAppData 生成真正的 updater.json。",
+  "serverUrl": "https://ssp.example.com",
   "softwareCode": "ROAD_PROCESS",
-  "updateToken": "ssp_upd_请从平台管理员页面生成",
+  "updateToken": "由首次激活自动生成，请勿手工写入安装包",
   "versionFile": "version.txt",
   "mainExecutable": "YourQtApplication.exe",
-  "fallbackToFullInstaller": false,
+  "fallbackToFullInstaller": true,
   "restartAfterUpdate": true,
   "waitForProcessSeconds": 60
 }

@@ -30,6 +30,17 @@
         private readonly Label
             _statusLabel;
 
+        /*
+  * 当前文件数量，例如：
+  * 705 / 1309
+  */
+        private readonly Label
+            _progressCountLabel;
+
+        /*
+         * 当前百分比，例如：
+         * 54%
+         */
         private readonly Label
             _progressTextLabel;
 
@@ -97,24 +108,26 @@
 
             ShowIcon =
                 true;
-
             /*
-             * 重点：
-             * 不再使用死板的小窗口尺寸。
+             * 更新过程中会显示：
              *
-             * ClientSize 比 Width / Height 更准确，
-             * 不包含标题栏和边框。
+             * 当前版本 / 目标版本
+             * 文件数量 / 百分比
+             * 当前文件完整路径
+             *
+             * 因此窗口适当加宽、加高，
+             * 避免 Windows 125% / 150% DPI 下文字被裁切。
              */
             ClientSize =
-                new Size(
-                    680,
-                    390
-                );
+     new Size(
+         720,
+         410
+     );
 
             MinimumSize =
                 new Size(
-                    696,
-                    429
+                    736,
+                    449
                 );
 
             /*
@@ -216,11 +229,11 @@
             );
 
             root.RowStyles.Add(
-                new RowStyle(
-                    SizeType.Absolute,
-                    26F
-                )
-            );
+      new RowStyle(
+          SizeType.Absolute,
+          46F
+      )
+  );
 
             root.RowStyles.Add(
                 new RowStyle(
@@ -350,10 +363,17 @@
 
 
             /*
-             * ==========================================
-             * 进度区域
-             * ==========================================
-             */
+  * ==========================================
+  * 进度条区域
+  * ==========================================
+  *
+  * 分成三列：
+  *
+  * [进度条] [705 / 1309] [54%]
+  *
+  * 不再把“数量 + 百分比”挤在同一个 Label 中，
+  * 避免高 DPI 下文字被裁切。
+  */
             var progressPanel =
                 new TableLayoutPanel
                 {
@@ -361,18 +381,19 @@
                         DockStyle.Fill,
 
                     ColumnCount =
-                        2,
+                        3,
 
                     RowCount =
                         1,
 
                     Margin =
-                        new Padding(
-                            0
-                        )
+                        new Padding(0)
                 };
 
 
+            /*
+             * 进度条占剩余全部空间。
+             */
             progressPanel.ColumnStyles.Add(
                 new ColumnStyle(
                     SizeType.Percent,
@@ -380,10 +401,31 @@
                 )
             );
 
+
+            /*
+             * 文件数量。
+             *
+             * 例如：
+             * 705 / 1309
+             */
             progressPanel.ColumnStyles.Add(
                 new ColumnStyle(
                     SizeType.Absolute,
-                    105F
+                    155F
+                )
+            );
+
+
+            /*
+             * 百分比。
+             *
+             * 例如：
+             * 54%
+             */
+            progressPanel.ColumnStyles.Add(
+                new ColumnStyle(
+                    SizeType.Absolute,
+                    70F
                 )
             );
 
@@ -415,48 +457,90 @@
                         )
                 };
 
+            _progressCountLabel =
+    new Label
+    {
+        Text =
+            string.Empty,
 
+        Dock =
+            DockStyle.Fill,
+
+        AutoSize =
+            false,
+
+        TextAlign =
+            ContentAlignment.MiddleRight,
+
+        Font =
+            new Font(
+                "Microsoft YaHei UI",
+                9F,
+                FontStyle.Regular,
+                GraphicsUnit.Point
+            ),
+
+        ForeColor =
+            Color.FromArgb(
+                75,
+                75,
+                75
+            ),
+
+        Margin =
+            new Padding(
+                6,
+                0,
+                2,
+                0
+            )
+    };
             _progressTextLabel =
-                new Label
-                {
-                    Text =
-                        "0%",
+     new Label
+     {
+         Text =
+             "0%",
 
-                    Dock =
-                        DockStyle.Fill,
+         Dock =
+             DockStyle.Fill,
 
-                    AutoSize =
-                        false,
+         AutoSize =
+             false,
 
-                    TextAlign =
-                        ContentAlignment.MiddleRight,
+         TextAlign =
+             ContentAlignment.MiddleRight,
 
-                    Font =
-                        new Font(
-                            "Microsoft YaHei UI",
-                            9.5F,
-                            FontStyle.Regular,
-                            GraphicsUnit.Point
-                        ),
+         Font =
+             new Font(
+                 "Microsoft YaHei UI",
+                 9.5F,
+                 FontStyle.Bold,
+                 GraphicsUnit.Point
+             ),
 
-                    ForeColor =
-                        Color.FromArgb(
-                            75,
-                            75,
-                            75
-                        )
-                };
-
+         ForeColor =
+             Color.FromArgb(
+                 75,
+                 75,
+                 75
+             )
+     };
 
             progressPanel.Controls.Add(
-                _progressBar,
-                0,
+     _progressBar,
+     0,
+     0
+ );
+
+            progressPanel.Controls.Add(
+                _progressCountLabel,
+                1,
                 0
             );
 
             progressPanel.Controls.Add(
                 _progressTextLabel,
-                1,
+                2,
                 0
             );
 
@@ -965,8 +1049,19 @@
             }
             else
             {
+                /*
+                 * CurrentFile 来自服务端 manifest。
+                 *
+                 * 这里只清理真正的换行/制表控制字符，
+                 * 不擅自替换诸如 "/n" 这样的普通路径文本。
+                 * 如果界面出现“依赖环境/n”，说明 manifest 中很可能
+                 * 本身就存在该路径，需要回到更新包清单继续排查。
+                 */
                 _fileLabel.Text =
-                    progress.CurrentFile;
+                    progress.CurrentFile
+                        .Replace("\r", " ")
+                        .Replace("\n", " ")
+                        .Replace("\t", " ");
             }
 
 
@@ -1011,16 +1106,32 @@
                 progress.Total > 0
             )
             {
-                _progressTextLabel.Text =
-                    $"{progress.Current} / {progress.Total}    {percent}%";
+                _progressCountLabel.Text =
+                    $"{progress.Current} / {progress.Total}";
             }
             else
             {
-                _progressTextLabel.Text =
-                    $"{percent}%";
+                _progressCountLabel.Text =
+                    string.Empty;
             }
-        }
 
+            _progressTextLabel.Text =
+                $"{percent}%";
+        }
+        private void SetIndeterminateProgress()
+        {
+            _progressBar.Style =
+                ProgressBarStyle.Marquee;
+
+            _progressBar.MarqueeAnimationSpeed =
+                25;
+
+            _progressCountLabel.Text =
+                string.Empty;
+
+            _progressTextLabel.Text =
+                "处理中";
+        }
 
         /// <summary>
         /// 设置为“不确定进度”模式。
@@ -1031,22 +1142,6 @@
         /// 等待主程序退出
         /// 下载完整安装包
         /// </summary>
-        private void SetIndeterminateProgress()
-        {
-            _progressBar.Style =
-                ProgressBarStyle.Marquee;
-
-            _progressBar.MarqueeAnimationSpeed =
-                25;
-
-            _progressTextLabel.Text =
-                "处理中";
-        }
-
-
-        /// <summary>
-        /// 设置 100% 完成状态。
-        /// </summary>
         private void SetCompletedProgress()
         {
             _progressBar.Style =
@@ -1055,9 +1150,13 @@
             _progressBar.Value =
                 100;
 
+            _progressCountLabel.Text =
+                string.Empty;
+
             _progressTextLabel.Text =
                 "100%";
         }
+
 
 
         /// <summary>

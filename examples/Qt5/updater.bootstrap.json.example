@@ -1,0 +1,9 @@
+{
+  "serverUrl": "http://localhost:5108",
+  "softwareCode": "ROAD_PROCESS",
+  "versionFile": "version.txt",
+  "mainExecutable": "YourQtApplication.exe",
+  "fallbackToFullInstaller": true,
+  "restartAfterUpdate": true,
+  "waitForProcessSeconds": 60
+}

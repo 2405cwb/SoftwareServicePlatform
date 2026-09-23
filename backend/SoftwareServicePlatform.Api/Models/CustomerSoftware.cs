@@ -1,4 +1,4 @@
-﻿namespace SoftwareServicePlatform.Api.Models
+namespace SoftwareServicePlatform.Api.Models
 {
     /// <summary>
     /// 客户与软件之间的绑定关系。
@@ -49,5 +49,24 @@
         /// 软件导航属性
         /// </summary>
         public Software? Software { get; set; }
+
+        /// <summary>
+        /// 当前“客户 + 软件”下面已经激活的安装实例。
+        ///
+        /// 这里特意设计成一对多：
+        /// 一家公司可以在多台电脑上安装同一款软件，
+        /// 每一个安装实例都拥有自己独立的 UpdateToken。
+        /// </summary>
+        public ICollection<ClientInstallation> ClientInstallations { get; set; }
+            = new List<ClientInstallation>();
+
+        /// <summary>
+        /// 当前“客户 + 软件”生成过的一次性激活码。
+        ///
+        /// 激活码只负责第一次激活，
+        /// 激活成功后会换取该设备自己的 UpdateToken。
+        /// </summary>
+        public ICollection<ClientActivationCode> ClientActivationCodes { get; set; }
+            = new List<ClientActivationCode>();
     }
 }
