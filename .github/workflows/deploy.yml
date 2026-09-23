@@ -28,7 +28,7 @@ jobs:
           ssh-keyscan -H "$ECS_HOST" >> ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      - name: Backup and deploy
+      - name: Backup, deploy and rollback on failure
         shell: bash
         env:
           ECS_HOST: ${{ secrets.ECS_HOST }}
@@ -42,53 +42,61 @@ jobs:
           APP_DIR="/opt/software-service-platform/app"
           cd "$APP_DIR"
 
+          OLD_REV="$(git rev-parse HEAD)"
           echo "== Current revision =="
-          git rev-parse --short HEAD || true
+          git rev-parse --short "$OLD_REV"
 
-          echo "== Fetch latest deployment files =="
+          echo "== Fetch target revision =="
           git fetch origin main
-          git reset --hard origin/main
+          TARGET_REV="$(git rev-parse origin/main)"
+          git reset --hard "$TARGET_REV"
 
           echo "== Target revision =="
-          git rev-parse --short HEAD
+          git rev-parse --short "$TARGET_REV"
 
           echo "== Backup current production data =="
           if [ ! -f scripts/backup-production.sh ]; then
-            echo "Missing scripts/backup-production.sh after updating to origin/main."
+            echo "Missing scripts/backup-production.sh."
+            git reset --hard "$OLD_REV"
             exit 1
           fi
 
           chmod +x scripts/backup-production.sh
           ./scripts/backup-production.sh "$APP_DIR"
 
-          echo "== Rebuild and start containers =="
-          docker compose \
-            -f compose.prod.yaml \
-            --env-file .env \
-            up -d --build
+          deploy_stack() {
+            docker compose \
+              -f compose.prod.yaml \
+              --env-file .env \
+              up -d --build
+          }
 
-          echo "== Container status =="
-          docker compose \
-            -f compose.prod.yaml \
-            --env-file .env \
-            ps
+          show_status() {
+            docker compose \
+              -f compose.prod.yaml \
+              --env-file .env \
+              ps
+          }
 
-          echo "== Health check =="
-          ok=0
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1/api/health >/tmp/ssp-health.json; then
-              cat /tmp/ssp-health.json
-              echo
-              ok=1
-              break
-            fi
+          health_check() {
+            local attempts="${1:-30}"
+            local delay="${2:-3}"
 
-            echo "Waiting for application... ($i/30)"
-            sleep 3
-          done
+            for i in $(seq 1 "$attempts"); do
+              if curl -fsS http://127.0.0.1/api/health >/tmp/ssp-health.json; then
+                cat /tmp/ssp-health.json
+                echo
+                return 0
+              fi
 
-          if [ "$ok" -ne 1 ]; then
-            echo "Health check failed."
+              echo "Waiting for application... ($i/$attempts)"
+              sleep "$delay"
+            done
+
+            return 1
+          }
+
+          show_failure_logs() {
             echo "== API logs =="
             docker compose \
               -f compose.prod.yaml \
@@ -100,9 +108,64 @@ jobs:
               -f compose.prod.yaml \
               --env-file .env \
               logs --tail=120 frontend || true
+          }
 
+          echo "== Rebuild and start target revision =="
+          if ! deploy_stack; then
+            echo "Target deployment command failed."
+            show_failure_logs
+            DEPLOY_FAILED=1
+          else
+            DEPLOY_FAILED=0
+          fi
+
+          if [ "$DEPLOY_FAILED" -eq 0 ]; then
+            echo "== Container status =="
+            show_status
+
+            echo "== Health check =="
+            if health_check 30 3; then
+              echo "Deployment succeeded."
+              exit 0
+            fi
+
+            echo "Target health check failed."
+            show_failure_logs
+          fi
+
+          echo "== Automatic code rollback =="
+          echo "Rolling back source to:"
+          git rev-parse --short "$OLD_REV"
+
+          git reset --hard "$OLD_REV"
+
+          if ! deploy_stack; then
+            echo "Rollback build/start failed."
+            show_failure_logs
+            echo
+            echo "IMPORTANT: A pre-deployment database/storage backup was created."
+            echo "Database changes are NOT restored automatically."
             exit 1
           fi
 
-          echo "Deployment succeeded."
+          echo "== Rolled-back container status =="
+          show_status
+
+          echo "== Rolled-back health check =="
+          if health_check 30 3; then
+            echo "Code rollback succeeded and the previous revision is healthy."
+            echo
+            echo "IMPORTANT: The deployment is still marked failed."
+            echo "Database/storage were NOT automatically restored."
+            echo "If the failed release applied an incompatible EF migration,"
+            echo "restore the pre-deployment backup manually before further deployment."
+            exit 1
+          fi
+
+          echo "Rollback health check also failed."
+          show_failure_logs
+          echo
+          echo "IMPORTANT: Manual recovery is required."
+          echo "Use the pre-deployment backup created by backup-production.sh."
+          exit 1
           REMOTE
