@@ -1,153 +1,100 @@
 import { useEffect, useState } from "react";
-
+import { Copy, KeyRound, Monitor, ShieldOff } from "lucide-react";
 import { apiFetch } from "../services/api";
 
-/*
- * 最新版本信息。
- *
- * 如果某个软件还没有发布正式 Release 版本，
- * latestVersion 会是 null。
- */
 interface LatestVersion {
   id: number;
-
   version: string;
-
   title: string;
-
   releaseNotes: string;
-
   publishedAt: string | null;
-
   forceUpdate: boolean;
-
   packageFileName: string;
-
   packageFileSize: number;
-
   canDownload: boolean;
 }
+
 interface SoftwareVersionHistoryItem {
   id: number;
-
   version: string;
-
   versionType: string;
-
   publishStatus: string;
-
   title: string;
-
   releaseNotes: string;
-
   publishedAt: string | null;
-
   forceUpdate: boolean;
-
   packageFileName: string;
-
   packageFileSize: number;
-
   canDownload: boolean;
 }
-/*
- * 客户可以看到的版本附件。
- *
- * 后端已经过滤：
- * IsCustomerVisible = true
- *
- * 所以这里不会收到内部问题日志。
- */
+
 interface MyVersionAttachment {
   id: number;
-
   softwareVersionId: number;
-
   fileName: string;
-
   fileSize: number;
-
   contentType: string;
-
   attachmentType: string;
-
   remark: string;
-
   createdAt: string;
 }
 
-/*
- * 当前客户拥有的软件。
- *
- * 对应后端：
- *
- * GET /api/my-software
- */
 interface MySoftware {
   softwareId: number;
-
   softwareName: string;
-
   softwareCode: string;
-
   shortName: string;
-
   category: string;
-
   description: string;
-
   platform: string;
-
   boundAt: string;
-
   latestVersion: LatestVersion | null;
 }
 
+interface ActivationCodeResult {
+  activationCode: string;
+  expiresAt: string;
+  softwareId: number;
+  softwareCode: string;
+  softwareName: string;
+  message: string;
+}
+
+interface ClientDevice {
+  id: number;
+  installationId: string;
+  deviceName: string;
+  tokenPrefix: string;
+  isEnabled: boolean;
+  activatedAt: string;
+  lastUsedAt: string | null;
+  updatedAt: string;
+}
+
 function MySoftwarePage() {
-  /*
-   * 当前客户拥有的软件列表。
-   */
   const [softwareList, setSoftwareList] = useState<MySoftware[]>([]);
-  /*
-   * 各个版本对应的客户可见资料。
-   *
-   * 例如：
-   *
-   * {
-   *   5: [附件1, 附件2],
-   *   8: [附件3]
-   * }
-   *
-   * 这里的 5、8 都是 SoftwareVersion.Id。
-   */
   const [versionAttachments, setVersionAttachments] = useState<
     Record<number, MyVersionAttachment[]>
   >({});
-  /*
-   * 是否正在加载。
-   */
   const [loading, setLoading] = useState(true);
-
-  /*
-   * 错误信息。
-   */
   const [errorMessage, setErrorMessage] = useState("");
 
-  const [historySoftware, setHistorySoftware] = useState<MySoftware | null>(
-    null,
-  );
-
+  const [historySoftware, setHistorySoftware] = useState<MySoftware | null>(null);
   const [versionHistory, setVersionHistory] = useState<
     SoftwareVersionHistoryItem[]
   >([]);
-
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  /*
-   * ======================================
-   * 加载某个版本的客户可见资料
-   * ======================================
-   */
+  const [activationResult, setActivationResult] =
+    useState<ActivationCodeResult | null>(null);
+  const [activationLoadingId, setActivationLoadingId] =
+    useState<number | null>(null);
+
+  const [deviceSoftware, setDeviceSoftware] = useState<MySoftware | null>(null);
+  const [devices, setDevices] = useState<ClientDevice[]>([]);
+  const [deviceLoading, setDeviceLoading] = useState(false);
+  const [revokingDeviceId, setRevokingDeviceId] = useState<number | null>(null);
+
   async function loadVersionAttachments(versionId: number) {
     try {
       const response = await apiFetch(
@@ -155,146 +102,41 @@ function MySoftwarePage() {
       );
 
       if (!response.ok) {
-        const errorText = await response.text();
-
-        throw new Error(errorText || `获取版本资料失败：${response.status}`);
+        throw new Error(await response.text());
       }
 
       const data = (await response.json()) as MyVersionAttachment[];
 
-      /*
-       * 只更新当前 versionId 对应的数据。
-       */
       setVersionAttachments((current) => ({
         ...current,
-
         [versionId]: data,
       }));
     } catch (error) {
       console.error(`加载版本 ${versionId} 的资料失败：`, error);
 
-      /*
-       * 某个版本资料加载失败，
-       * 不应该导致整个“我的软件”页面打不开。
-       */
       setVersionAttachments((current) => ({
         ...current,
-
         [versionId]: [],
       }));
     }
   }
-  function getVersionTypeName(versionType: string) {
-    switch (versionType) {
-      case "Release":
-        return "正式版";
 
-      case "Beta":
-        return "测试版";
-
-      case "Dev":
-        return "开发版";
-
-      default:
-        return versionType;
-    }
-  }
-
-  function getPublishStatusName(status: string) {
-    switch (status) {
-      case "Published":
-        return "已发布";
-
-      case "Deprecated":
-        return "已停用";
-
-      case "Draft":
-        return "草稿";
-
-      default:
-        return status;
-    }
-  }
-
-  /*打开历史版本 */
-  async function openVersionHistory(software: MySoftware) {
-    try {
-      setHistorySoftware(software);
-
-      setVersionHistory([]);
-
-      setHistoryLoading(true);
-
-      const response = await apiFetch(
-        `/api/my-software/${software.softwareId}/versions`,
-      );
-
-      if (!response.ok) {
-        const errorText = await response.text();
-
-        throw new Error(errorText || `获取版本历史失败：${response.status}`);
-      }
-
-      const data = (await response.json()) as SoftwareVersionHistoryItem[];
-
-      setVersionHistory(data);
-    } catch (error) {
-      console.error("获取版本历史失败：", error);
-
-      alert("获取版本历史失败：" + String(error));
-
-      setHistorySoftware(null);
-    } finally {
-      setHistoryLoading(false);
-    }
-  }
-
-  /*
-   * ======================================
-   * 加载当前客户的软件
-   * ======================================
-   */
   async function loadMySoftware() {
     try {
       setLoading(true);
-
       setErrorMessage("");
 
-      /*
-       * 注意：
-       *
-       * 这里没有：
-       *
-       * ?customerId=1
-       *
-       * 因为当前客户是谁，
-       * 由后端根据 JWT 判断。
-       */
       const response = await apiFetch("/api/my-software");
 
       if (!response.ok) {
-        const errorText = await response.text();
-
-        throw new Error(errorText || `获取我的软件失败：${response.status}`);
+        const text = await response.text();
+        throw new Error(text || `获取我的软件失败：${response.status}`);
       }
 
-      /*
-       * 后端返回 JSON 数组。
-       */
       const data = (await response.json()) as MySoftware[];
-
       setSoftwareList(data);
-
-      /*
-       * 每次重新加载软件时，
-       * 先清空旧的附件缓存。
-       */
       setVersionAttachments({});
 
-      /*
-       * 给每一个存在“最新正式版本”的软件，
-       * 加载它的客户可见资料。
-       */
       await Promise.all(
         data
           .filter((software) => software.latestVersion !== null)
@@ -304,319 +146,361 @@ function MySoftwarePage() {
       );
     } catch (error) {
       console.error("加载我的软件失败：", error);
-
       setErrorMessage("加载软件信息失败，请稍后重试。");
     } finally {
       setLoading(false);
     }
   }
 
-  /*
-   * 页面第一次打开时，
-   * 自动加载软件。
-   */
   useEffect(() => {
-    loadMySoftware();
+    void loadMySoftware();
   }, []);
-  /*
-   * ======================================
-   * 版本资料类型中文名称
-   * ======================================
-   */
-  function getAttachmentTypeName(type: string) {
-    switch (type) {
-      case "Manual":
-        return "用户手册";
 
-      case "ReleaseDocument":
-        return "版本说明";
-
-      case "Troubleshooting":
-        return "常见问题";
-
-      case "Config":
-        return "配置文件";
-
-      case "Other":
-        return "其他资料";
-
-      default:
-        return "资料";
-    }
-  }
-  /*
-   * ======================================
-   * 格式化文件大小
-   * ======================================
-   *
-   * 数据库存的是字节：
-   *
-   * 1048576
-   *
-   * 转成人容易阅读的：
-   *
-   * 1 MB
-   */
-  function formatFileSize(bytes: number) {
-    if (bytes <= 0) {
-      return "-";
-    }
-
-    const kb = bytes / 1024;
-
-    if (kb < 1024) {
-      return `${kb.toFixed(1)} KB`;
-    }
-
-    const mb = kb / 1024;
-
-    if (mb < 1024) {
-      return `${mb.toFixed(1)} MB`;
-    }
-
-    const gb = mb / 1024;
-
-    return `${gb.toFixed(2)} GB`;
-  }
-
-  /*
-   * ======================================
-   * 格式化日期
-   * ======================================
-   */
-  function formatDate(dateText: string | null) {
-    if (!dateText) {
-      return "-";
-    }
-
-    const date = new Date(dateText);
-
-    return date.toLocaleString();
-  }
-  /*
-   * ======================================
-   * 下载软件安装包
-   * ======================================
-   */
-  async function downloadPackage(versionId: number) {
+  async function openVersionHistory(software: MySoftware) {
     try {
-      /*
-       * 第一步：
-       *
-       * 携带 JWT 请求短时下载票据。
-       */
+      setHistorySoftware(software);
+      setVersionHistory([]);
+      setHistoryLoading(true);
+
       const response = await apiFetch(
-        `/api/download/version/${versionId}/ticket`,
-        {
-          method: "POST",
-        },
+        `/api/my-software/${software.softwareId}/versions`,
       );
 
       if (!response.ok) {
-        const errorText = await response.text();
-
-        throw new Error(errorText || `获取下载地址失败：${response.status}`);
+        const text = await response.text();
+        throw new Error(text || `获取版本历史失败：${response.status}`);
       }
 
-      /*
-       * 后端返回：
-       *
-       * {
-       *   ticket: "...",
-       *   expiresInSeconds: 300,
-       *   downloadUrl: "/api/download/file?ticket=..."
-       * }
-       */
+      setVersionHistory(
+        (await response.json()) as SoftwareVersionHistoryItem[],
+      );
+    } catch (error) {
+      console.error("获取版本历史失败：", error);
+      alert("获取版本历史失败：" + String(error));
+      setHistorySoftware(null);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  async function downloadPackage(versionId: number) {
+    try {
+      const response = await apiFetch(
+        `/api/download/version/${versionId}/ticket`,
+        { method: "POST" },
+      );
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `获取下载地址失败：${response.status}`);
+      }
+
       const data = await response.json();
-
-      /*
-       * 创建一个临时 <a>。
-       *
-       * 浏览器自己执行文件下载，
-       * React 不读取安装包内容。
-       */
       const link = document.createElement("a");
-
       link.href = data.downloadUrl;
-
-      /*
-       * 不需要手工指定文件名。
-       *
-       * 后端 File()
-       * 会通过 Content-Disposition
-       * 告诉浏览器真正的文件名。
-       */
       document.body.appendChild(link);
-
       link.click();
-
       link.remove();
     } catch (error) {
       console.error("下载安装包失败：", error);
-
       alert("下载安装包失败：" + String(error));
     }
   }
 
-  /*
-   * ======================================
-   * 下载版本附加资料
-   * ======================================
-   */
   async function downloadVersionAttachment(attachment: MyVersionAttachment) {
     try {
-      /*
-       * 这个接口需要 Customer JWT，
-       * 所以必须使用 apiFetch。
-       */
       const response = await apiFetch(
         `/api/my-software/attachments/${attachment.id}/download`,
       );
 
       if (!response.ok) {
-        const errorText = await response.text();
-
-        throw new Error(errorText || `下载资料失败：${response.status}`);
+        const text = await response.text();
+        throw new Error(text || `下载资料失败：${response.status}`);
       }
 
-      /*
-       * 把服务器返回的文件读取成 Blob。
-       */
       const blob = await response.blob();
-
-      /*
-       * 创建浏览器临时下载地址。
-       */
       const url = URL.createObjectURL(blob);
-
       const link = document.createElement("a");
-
       link.href = url;
-
       link.download = attachment.fileName;
-
       document.body.appendChild(link);
-
       link.click();
-
       link.remove();
-
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error("下载版本资料失败：", error);
-
       alert("下载版本资料失败：" + String(error));
     }
   }
+
+  /**
+   * 为当前客户的一款软件生成一次性更新激活码。
+   *
+   * 注意：
+   * 这不是 UpdateToken。
+   * 更新激活码只使用一次，真正的设备 UpdateToken
+   * 会在桌面软件完成更新授权后由服务器返回给该设备。
+   */
+  async function generateActivationCode(software: MySoftware) {
+    try {
+      setActivationLoadingId(software.softwareId);
+
+      const response = await apiFetch(
+        `/api/client-activation/software/${software.softwareId}/code`,
+        { method: "POST" },
+      );
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `生成更新激活码失败：${response.status}`);
+      }
+
+      setActivationResult((await response.json()) as ActivationCodeResult);
+    } catch (error) {
+      console.error("生成更新激活码失败：", error);
+      alert(error instanceof Error ? error.message : "生成更新激活码失败");
+    } finally {
+      setActivationLoadingId(null);
+    }
+  }
+
+  async function copyActivationCode() {
+    if (!activationResult) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(activationResult.activationCode);
+      alert("更新激活码已复制");
+    } catch {
+      alert("浏览器未允许自动复制，请手工复制更新激活码");
+    }
+  }
+
+  async function openDeviceManager(software: MySoftware) {
+    setDeviceSoftware(software);
+    await loadDevices(software);
+  }
+
+  async function loadDevices(software: MySoftware) {
+    try {
+      setDeviceLoading(true);
+
+      const response = await apiFetch(
+        `/api/client-activation/software/${software.softwareId}/devices`,
+      );
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `获取设备列表失败：${response.status}`);
+      }
+
+      setDevices((await response.json()) as ClientDevice[]);
+    } catch (error) {
+      console.error("获取设备列表失败：", error);
+      alert(error instanceof Error ? error.message : "获取设备列表失败");
+      setDevices([]);
+    } finally {
+      setDeviceLoading(false);
+    }
+  }
+
+  async function revokeDevice(device: ClientDevice) {
+    if (!deviceSoftware) {
+      return;
+    }
+
+    if (
+      !window.confirm(
+        `确定停用设备“${device.deviceName}”的自动更新权限吗？\n\n只会影响这一台设备，其他设备不受影响。`,
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setRevokingDeviceId(device.id);
+
+      const response = await apiFetch(
+        `/api/client-activation/devices/${device.id}/revoke`,
+        { method: "POST" },
+      );
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `停用设备失败：${response.status}`);
+      }
+
+      await loadDevices(deviceSoftware);
+    } catch (error) {
+      console.error("停用设备失败：", error);
+      alert(error instanceof Error ? error.message : "停用设备失败");
+    } finally {
+      setRevokingDeviceId(null);
+    }
+  }
+
+  function getAttachmentTypeName(type: string) {
+    switch (type) {
+      case "Manual":
+        return "用户手册";
+      case "ReleaseDocument":
+        return "版本说明";
+      case "Troubleshooting":
+        return "常见问题";
+      case "Config":
+        return "配置文件";
+      case "Other":
+        return "其他资料";
+      default:
+        return "资料";
+    }
+  }
+
+  function getVersionTypeName(versionType: string) {
+    switch (versionType) {
+      case "Release":
+        return "正式版";
+      case "Beta":
+        return "测试版";
+      case "Dev":
+        return "开发版";
+      default:
+        return versionType;
+    }
+  }
+
+  function getPublishStatusName(status: string) {
+    switch (status) {
+      case "Published":
+        return "已发布";
+      case "Deprecated":
+        return "已停用";
+      case "Draft":
+        return "草稿";
+      default:
+        return status;
+    }
+  }
+
+  function formatFileSize(bytes: number) {
+    if (bytes <= 0) return "-";
+    const kb = bytes / 1024;
+    if (kb < 1024) return `${kb.toFixed(1)} KB`;
+    const mb = kb / 1024;
+    if (mb < 1024) return `${mb.toFixed(1)} MB`;
+    return `${(mb / 1024).toFixed(2)} GB`;
+  }
+
+  function formatDate(dateText: string | null) {
+    if (!dateText) return "-";
+    return new Date(dateText).toLocaleString("zh-CN");
+  }
+
   return (
     <div className="content">
-      {/* 页面标题 */}
       <div className="title-row">
         <h2>我的软件</h2>
       </div>
 
-      {/* ================================
-          加载状态
-          ================================ */}
       {loading && (
         <div className="my-software-message">正在加载您的软件...</div>
       )}
 
-      {/* ================================
-          错误状态
-          ================================ */}
       {!loading && errorMessage && (
         <div className="my-software-error">
           {errorMessage}
-
-          <button className="normal-button" onClick={loadMySoftware}>
+          <button className="normal-button" onClick={() => void loadMySoftware()}>
             重新加载
           </button>
         </div>
       )}
 
-      {/* ================================
-          没有软件
-          ================================ */}
       {!loading && !errorMessage && softwareList.length === 0 && (
         <div className="my-software-empty">
           <div className="my-software-empty-title">暂无授权软件</div>
-
           <div className="my-software-empty-text">
-            当前账号所属客户暂未绑定任何软件， 请联系软件服务人员进行授权。
+            当前账号所属客户暂未绑定任何软件，请联系软件服务人员进行授权。
           </div>
         </div>
       )}
 
-      {/* ================================
-          软件卡片列表
-          ================================ */}
       {!loading && !errorMessage && softwareList.length > 0 && (
         <div className="my-software-grid">
           {softwareList.map((software) => (
             <div className="my-software-card" key={software.softwareId}>
-              {/* 软件卡片顶部 */}
               <div className="my-software-card-header">
                 <div>
-                  <div className="my-software-name">
-                    {software.softwareName}
-                  </div>
-
-                  <div className="my-software-code">
-                    {software.softwareCode}
-                  </div>
+                  <div className="my-software-name">{software.softwareName}</div>
+                  <div className="my-software-code">{software.softwareCode}</div>
                 </div>
-
                 {software.category && (
-                  <span className="my-software-category">
-                    {software.category}
-                  </span>
+                  <span className="my-software-category">{software.category}</span>
                 )}
               </div>
 
-              {/* 软件描述 */}
               <div className="my-software-description">
                 {software.description || "暂无软件说明"}
               </div>
 
-              {/* 软件基本信息 */}
               <div className="my-software-info">
                 <div>
                   <span>软件简称</span>
-
                   <strong>{software.shortName || "-"}</strong>
                 </div>
-
                 <div>
                   <span>运行平台</span>
-
                   <strong>{software.platform || "-"}</strong>
                 </div>
-
                 <div>
                   <span>授权时间</span>
-
                   <strong>{formatDate(software.boundAt)}</strong>
                 </div>
               </div>
 
-              {/* ================================
-                      最新版本
-                      ================================ */}
+              {/*
+               * 设备激活与软件下载分开。
+               * 下载完整安装包并不代表每次都要重新申请更新激活码；
+               * 只有一台新设备第一次安装时才需要进行一次更新授权。
+               */}
+              <div
+                className="my-version-actions"
+                style={{ marginBottom: 16, flexWrap: "wrap" }}
+              >
+                <button
+                  type="button"
+                  className="normal-button"
+                  disabled={activationLoadingId === software.softwareId}
+                  onClick={() => void generateActivationCode(software)}
+                >
+                  <KeyRound size={14} />
+                  {activationLoadingId === software.softwareId
+                    ? "生成中..."
+                    : "获取更新激活码"}
+                </button>
+
+                <button
+                  type="button"
+                  className="normal-button"
+                  onClick={() => void openDeviceManager(software)}
+                >
+                  <Monitor size={14} />
+                  更新设备管理
+                </button>
+              </div>
+
               <div className="my-version-area">
                 {software.latestVersion === null ? (
                   <div className="my-version-empty">
-                    <div className="my-version-empty">
-                      当前暂无可用版本
-                      <div style={{ marginTop: 12 }}>
-                        <button
-                          type="button"
-                          className="normal-button"
-                          onClick={() => void openVersionHistory(software)}
-                        >
-                          查看历史版本
-                        </button>
-                      </div>
+                    当前暂无可用版本
+                    <div style={{ marginTop: 12 }}>
+                      <button
+                        type="button"
+                        className="normal-button"
+                        onClick={() => void openVersionHistory(software)}
+                      >
+                        查看历史版本
+                      </button>
                     </div>
                   </div>
                 ) : (
@@ -624,7 +508,6 @@ function MySoftwarePage() {
                     <div className="my-version-header">
                       <div>
                         <span className="my-version-label">最新版本</span>
-
                         <strong className="my-version-number">
                           {software.latestVersion.version}
                         </strong>
@@ -645,41 +528,30 @@ function MySoftwarePage() {
 
                     <div className="my-version-meta">
                       <span>
-                        发布时间：
-                        {formatDate(software.latestVersion.publishedAt)}
+                        发布时间：{formatDate(software.latestVersion.publishedAt)}
                       </span>
-
                       {software.latestVersion.packageFileName && (
-                        <span>
-                          安装包：
-                          {software.latestVersion.packageFileName}
-                        </span>
+                        <span>安装包：{software.latestVersion.packageFileName}</span>
                       )}
-
                       {software.latestVersion.packageFileSize > 0 && (
                         <span>
-                          大小：
-                          {formatFileSize(
-                            software.latestVersion.packageFileSize,
-                          )}
+                          大小：{formatFileSize(software.latestVersion.packageFileSize)}
                         </span>
                       )}
                     </div>
 
-                    {/* 下载按钮 */}
                     <div className="my-version-actions">
                       <button
                         type="button"
                         className="primary-button"
                         disabled={!software.latestVersion.canDownload}
-                        onClick={() =>
-                          downloadPackage(software.latestVersion!.id)
-                        }
+                        onClick={() => downloadPackage(software.latestVersion!.id)}
                       >
                         {software.latestVersion.canDownload
                           ? "下载安装包"
                           : "暂不可下载"}
                       </button>
+
                       <button
                         type="button"
                         className="normal-button"
@@ -689,9 +561,6 @@ function MySoftwarePage() {
                       </button>
                     </div>
 
-                    {/* ================================
-    版本资料
-    ================================ */}
                     <div className="my-version-resources">
                       <div className="my-version-resources-title">版本资料</div>
 
@@ -702,46 +571,41 @@ function MySoftwarePage() {
                         </div>
                       ) : (
                         <div className="my-version-resources-list">
-                          {(
-                            versionAttachments[software.latestVersion.id] ?? []
-                          ).map((attachment) => (
-                            <div
-                              className="my-version-resource-item"
-                              key={attachment.id}
-                            >
-                              <div className="my-version-resource-info">
-                                <div className="my-version-resource-name">
-                                  {attachment.fileName}
-                                </div>
-
-                                <div className="my-version-resource-meta">
-                                  <span>
-                                    {getAttachmentTypeName(
-                                      attachment.attachmentType,
-                                    )}
-                                  </span>
-
-                                  <span>
-                                    {formatFileSize(attachment.fileSize)}
-                                  </span>
-
-                                  {attachment.remark && (
-                                    <span>{attachment.remark}</span>
-                                  )}
-                                </div>
-                              </div>
-
-                              <button
-                                type="button"
-                                className="normal-button"
-                                onClick={() =>
-                                  downloadVersionAttachment(attachment)
-                                }
+                          {(versionAttachments[software.latestVersion.id] ?? []).map(
+                            (attachment) => (
+                              <div
+                                className="my-version-resource-item"
+                                key={attachment.id}
                               >
-                                下载
-                              </button>
-                            </div>
-                          ))}
+                                <div className="my-version-resource-info">
+                                  <div className="my-version-resource-name">
+                                    {attachment.fileName}
+                                  </div>
+                                  <div className="my-version-resource-meta">
+                                    <span>
+                                      {getAttachmentTypeName(
+                                        attachment.attachmentType,
+                                      )}
+                                    </span>
+                                    <span>{formatFileSize(attachment.fileSize)}</span>
+                                    {attachment.remark && (
+                                      <span>{attachment.remark}</span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  className="normal-button"
+                                  onClick={() =>
+                                    void downloadVersionAttachment(attachment)
+                                  }
+                                >
+                                  下载
+                                </button>
+                              </div>
+                            ),
+                          )}
                         </div>
                       )}
                     </div>
@@ -753,20 +617,169 @@ function MySoftwarePage() {
         </div>
       )}
 
+      {activationResult && (
+        <div className="version-attachment-mask">
+          <div className="version-attachment-dialog" style={{ maxWidth: 560 }}>
+            <div className="version-attachment-header">
+              <div>
+                <h3>一次性更新激活码</h3>
+                <p>
+                  {activationResult.softwareName} · {activationResult.softwareCode}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="normal-button"
+                onClick={() => setActivationResult(null)}
+              >
+                关闭
+              </button>
+            </div>
+
+            <div
+              style={{
+                padding: 12,
+                borderRadius: 8,
+                background: "#fff7ed",
+                color: "#9a3412",
+                marginTop: 12,
+              }}
+            >
+              更新激活码只用于为一台新设备开通自动更新权限，成功使用后立即失效。它不是软件注册码，也不会影响软件正常使用。
+            </div>
+
+            <div
+              style={{
+                margin: "20px 0",
+                padding: 18,
+                border: "1px dashed #94a3b8",
+                borderRadius: 10,
+                textAlign: "center",
+              }}
+            >
+              <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: 2 }}>
+                {activationResult.activationCode}
+              </div>
+              <div style={{ marginTop: 8, color: "#64748b" }}>
+                有效期至：{formatDate(activationResult.expiresAt)}
+              </div>
+            </div>
+
+            <div className="form-buttons">
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => void copyActivationCode()}
+              >
+                <Copy size={15} />
+                复制更新激活码
+              </button>
+              <button
+                type="button"
+                className="normal-button"
+                onClick={() => setActivationResult(null)}
+              >
+                已保存，关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deviceSoftware && (
+        <div className="version-attachment-mask">
+          <div className="version-attachment-dialog" style={{ maxWidth: 760 }}>
+            <div className="version-attachment-header">
+              <div>
+                <h3>更新设备管理</h3>
+                <p>
+                  {deviceSoftware.softwareName} · {deviceSoftware.softwareCode}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="normal-button"
+                onClick={() => {
+                  setDeviceSoftware(null);
+                  setDevices([]);
+                }}
+              >
+                关闭
+              </button>
+            </div>
+
+            {deviceLoading ? (
+              <div className="my-software-message">正在加载设备...</div>
+            ) : devices.length === 0 ? (
+              <div className="my-software-empty">
+                暂无已授权更新设备。新电脑安装软件后，使用一次性更新激活码开通自动更新即可。
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: 12 }}>
+                {devices.map((device) => (
+                  <div
+                    key={device.id}
+                    style={{
+                      border: "1px solid #e2e8f0",
+                      borderRadius: 10,
+                      padding: 14,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 18,
+                      alignItems: "center",
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 700 }}>
+                        {device.deviceName || "未命名设备"}
+                      </div>
+                      <div style={{ color: "#64748b", fontSize: 13 }}>
+                        安装实例：{device.installationId}
+                      </div>
+                      <div style={{ color: "#64748b", fontSize: 13 }}>
+                        激活：{formatDate(device.activatedAt)} · 最近检查：
+                        {formatDate(device.lastUsedAt)}
+                      </div>
+                      <div style={{ color: "#64748b", fontSize: 13 }}>
+                        Token：{device.tokenPrefix}
+                      </div>
+                    </div>
+
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ marginBottom: 8 }}>
+                        {device.isEnabled ? "正常" : "已停用"}
+                      </div>
+
+                      {device.isEnabled && (
+                        <button
+                          type="button"
+                          className="delete-button"
+                          disabled={revokingDeviceId === device.id}
+                          onClick={() => void revokeDevice(device)}
+                        >
+                          <ShieldOff size={14} />
+                          {revokingDeviceId === device.id ? "处理中..." : "停用更新"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {historySoftware && (
         <div className="version-attachment-mask">
           <div className="version-attachment-dialog">
             <div className="version-attachment-header">
               <div>
                 <h3>历史版本</h3>
-
                 <p>
-                  {historySoftware.softwareName}
-                  {" · "}
-                  {historySoftware.softwareCode}
+                  {historySoftware.softwareName} · {historySoftware.softwareCode}
                 </p>
               </div>
-
               <button
                 type="button"
                 className="normal-button"
@@ -787,37 +800,22 @@ function MySoftwarePage() {
                     <div className="my-version-history-header">
                       <div>
                         <strong>{version.version}</strong>
-
                         <span> {getVersionTypeName(version.versionType)}</span>
                       </div>
-
                       <span>{getPublishStatusName(version.publishStatus)}</span>
                     </div>
 
                     <div>{version.title || "暂无版本标题"}</div>
-
                     <div className="my-version-notes">
                       {version.releaseNotes || "暂无更新说明"}
                     </div>
-
                     <div className="my-version-meta">
-                      <span>
-                        发布时间：
-                        {formatDate(version.publishedAt)}
-                      </span>
-
+                      <span>发布时间：{formatDate(version.publishedAt)}</span>
                       {version.packageFileName && (
-                        <span>
-                          安装包：
-                          {version.packageFileName}
-                        </span>
+                        <span>安装包：{version.packageFileName}</span>
                       )}
-
                       {version.packageFileSize > 0 && (
-                        <span>
-                          大小：
-                          {formatFileSize(version.packageFileSize)}
-                        </span>
+                        <span>大小：{formatFileSize(version.packageFileSize)}</span>
                       )}
                     </div>
 
