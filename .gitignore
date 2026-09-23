@@ -71,3 +71,5 @@ backend/SoftwareServicePlatform.Api/Storage/
 # Docker runtime data
 # =========================
 docker-data/
+# GitHub Actions deployment bundle
+/ssp-deploy.bundle
