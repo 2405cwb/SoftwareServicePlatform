@@ -1,8 +1,20 @@
 # C# WinForms .NET Framework 4.8 接入
 
-本版本已经升级为“设备级激活 + 设备独立 UpdateToken”。
+本版本已经升级为：
 
-业务源码不再保存客户专属 `updateToken`，客户也不需要手工填写密钥。
+```text
+设备更新授权
++
+设备独立 UpdateToken
++
+自动更新
+```
+
+业务源码不再保存客户专属 `updateToken`，客户也不需要手工填写长期更新密钥。
+
+这里的“更新授权”只决定当前设备能否使用平台自动更新，不影响业务软件正常启动和使用。
+
+---
 
 ## 1. 加入文件
 
@@ -22,6 +34,8 @@ System.Windows.Forms
 System.Drawing
 ```
 
+---
+
 ## 2. 安装目录约定
 
 ```text
@@ -33,18 +47,27 @@ AppRoot/
    └─ updater.bootstrap.json
 ```
 
-设备 UpdateToken 不写到 Program Files 安装目录。首次激活后会写到：
+新安装包不要预置真实：
+
+```text
+updater.json
+```
+
+设备完成更新授权后，真正包含设备 UpdateToken 的配置会写到：
 
 ```text
 %LOCALAPPDATA%\SoftwareServicePlatform\UpdaterConfigs\<softwareCode>\updater.json
 ```
 
-其中：
+这样即使软件安装在：
 
-- `updater.bootstrap.json` 可以直接打进所有客户共用的完整安装包；
-- `updater.json` 不要预先打包，它会在客户首次激活后自动生成到当前 Windows 用户的 LocalAppData；
-- 这样即使程序安装在 `C:\Program Files`，普通用户也可以完成首次激活；
-- `updater.json` 包含设备自己的 UpdateToken，不要提交 Git。
+```text
+C:\Program Files\...
+```
+
+普通用户也可以保存更新配置。
+
+---
 
 ## 3. 配置 updater.bootstrap.json
 
@@ -74,38 +97,61 @@ updater/updater.bootstrap.json
 }
 ```
 
-`serverUrl` 和 `softwareCode` 不是客户密码，也不是敏感密钥，可以随安装包发布。
-
-## 4. 客户第一次使用
-
-客户流程：
+其中：
 
 ```text
-登录软件服务平台
-→ 我的软件
-→ 获取激活码
-→ 启动桌面软件
-→ 输入一次性激活码
-→ 激活成功
+serverUrl
+softwareCode
 ```
 
-客户端会自动调用：
+不是客户密码，也不是敏感密钥，可以随安装包发布。
+
+`softwareCode` 必须与平台中的 `Software.Code` 一致。
+
+---
+
+## 4. 第一次更新授权
+
+客户在平台：
 
 ```text
+我的软件
+→ 获取更新激活码
+```
+
+然后启动桌面软件。
+
+如果本机还没有设备级更新配置，会显示：
+
+```text
+设备更新授权
+
+请输入一次性更新激活码
+```
+
+流程：
+
+```text
+输入一次性更新激活码
+  ↓
 POST /api/client-activation/activate
+  ↓
+服务器验证客户 + 软件授权
+  ↓
+创建 ClientInstallation
+  ↓
+为当前设备生成独立 UpdateToken
+  ↓
+保存 updater.json 到 LocalAppData
+  ↓
+继续检查更新
 ```
 
-服务器随后为这一台安装实例创建独立 UpdateToken，并返回给客户端。
+以后启动不再要求输入更新激活码。
 
-客户端自动生成：
+更新激活码是一次性的，只用于给一台新设备开通自动更新能力。
 
-```text
-%LOCALAPPDATA%\SoftwareServicePlatform\UpdaterConfigs\<softwareCode>\updater.json
-```
-
-主程序启动 Updater 时会显式传入 `--config`，所以 Updater 仍然可以读取这份配置。
-
-以后启动不再要求输入激活码。
+---
 
 ## 5. MainForm_Shown
 
@@ -146,9 +192,11 @@ private async void MainForm_Shown(
 }
 ```
 
-## 6. 设备级 Token
+---
 
-新的授权关系：
+## 6. 设备级 UpdateToken
+
+新的更新授权关系：
 
 ```text
 CustomerSoftware
@@ -158,18 +206,94 @@ ClientInstallation B → UpdateToken B
 ClientInstallation C → UpdateToken C
 ```
 
-客户在网页“设备管理”中停用 B 后：
+管理员或客户停用 B 的更新权限后：
 
 ```text
 A 正常
-B 无法继续检查/下载更新
+B 无法继续检查 / 下载更新
 C 正常
 ```
 
-不会影响其他设备。
+只影响 B。
 
-## 7. UAC
+业务软件本身仍然可以正常启动和使用。
 
-业务程序不要硬编码 `Verb = "runas"`。
+---
 
-`SoftwareServicePlatform.Updater.exe` 应由自身 manifest 声明管理员权限。业务程序使用 `UseShellExecute = true` 启动 Updater，让 Windows 正常处理 UAC。
+## 7. 断网行为
+
+自动更新是辅助能力。
+
+已经完成更新授权的设备临时断网：
+
+```text
+业务软件正常启动
+→ 更新检查失败 / 跳过
+→ 不影响正常使用
+```
+
+第一次更新授权时没有网络：
+
+```text
+更新授权无法完成
+→ 提示网络错误
+→ 不应把业务软件锁死
+```
+
+---
+
+## 8. Updater 配置传递
+
+设备配置位于：
+
+```text
+%LOCALAPPDATA%\SoftwareServicePlatform\UpdaterConfigs\<softwareCode>\updater.json
+```
+
+主程序启动 Updater 时会显式传入：
+
+```text
+--config "<LocalAppData中的updater.json>"
+```
+
+所以 Updater 不要求 `updater.json` 位于自身 EXE 同目录。
+
+---
+
+## 9. UAC
+
+业务程序不要硬编码：
+
+```text
+Verb = "runas"
+```
+
+`SoftwareServicePlatform.Updater.exe` 应由自身 manifest 声明管理员权限。
+
+业务程序使用：
+
+```text
+UseShellExecute = true
+```
+
+启动 Updater，让 Windows 正常处理 UAC。
+
+---
+
+## 10. 安全注意事项
+
+不要把真实的：
+
+```text
+UpdateToken
+updater.json
+```
+
+提交到 Git 或直接打进通用安装包。
+
+安装包只需要携带：
+
+```text
+SoftwareServicePlatform.Updater.exe
+updater.bootstrap.json
+```

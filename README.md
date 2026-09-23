@@ -4,10 +4,10 @@
 
 SoftwareServicePlatform 用于统一管理公司客户、软件产品、软件版本、安装包、客户端自动更新、下载记录、工单、SLA 和通知流程，逐步替代依赖微信、网盘、FTP 和人工记录的软件交付与售后方式。
 
-当前项目已形成从 **客户授权 → 软件发布 → 客户下载 / 自动升级 → 问题反馈 → 工单处理 → SLA → 实时通知** 的基础业务闭环。
+当前项目已形成从 **客户授权 → 软件发布 → 更新设备授权 → 客户下载 / 自动升级 → 问题反馈 → 工单处理 → SLA → 实时通知** 的基础业务闭环。
 
 > 当前状态：持续开发 / 内部试用阶段  
-> 更新日期：2026-09-21
+> 更新日期：2026-09-23
 
 ---
 
@@ -35,6 +35,8 @@ SoftwareServicePlatform 希望将这些流程统一到一个平台中。
 软件 / 软件版本
   ↓
 版本发布
+  ↓
+更新设备授权
   ↓
 安装包下载 / 客户端自动更新
   ↓
@@ -91,6 +93,16 @@ SLA 跟踪
 - SHA256 文件校验
 - 文件级增量更新
 - 自动备份与失败回滚
+- 图形化进度窗口
+- 设备级 UpdateToken
+
+### 客户端接入
+
+- C# WinForms .NET Framework 4.8
+- Qt 5.8
+- 统一 `updater.bootstrap.json`
+- 设备级更新授权
+- LocalAppData 独立更新配置
 
 ### 开发工具
 
@@ -107,7 +119,7 @@ SLA 跟踪
 ```text
 ┌─────────────────────────────┐
 │        React Frontend       │
-│  Dashboard / Customer / ... │
+│ Dashboard / Customer / ...  │
 └──────────────┬──────────────┘
                │ HTTP / SignalR
                ↓
@@ -123,6 +135,7 @@ SLA 跟踪
 
                  ↑
                  │ X-Update-Token
+                 │ 每个 ClientInstallation 独立 Token
                  │
 ┌─────────────────────────────┐
 │ Windows Application Client  │
@@ -130,6 +143,20 @@ SLA 跟踪
 │ SoftwareServicePlatform     │
 │          Updater            │
 └─────────────────────────────┘
+```
+
+更新授权核心关系：
+
+```text
+Customer
+   ↓
+CustomerSoftware
+   ↓
+一次性更新激活码
+   ↓
+ClientInstallation
+   ↓
+设备独立 UpdateToken
 ```
 
 ---
@@ -191,6 +218,8 @@ Software
 - 发布客户范围控制
 - 指定客户发布
 - 全部客户发布
+- 文件级更新 ZIP
+- 目标版本文件清单
 
 同一软件可以维护多个历史版本。
 
@@ -222,6 +251,23 @@ CustomerId + SoftwareId
 
 建立唯一约束，防止重复绑定。
 
+`CustomerSoftware` 表示公司级的软件授权；设备级自动更新权限由：
+
+```text
+ClientInstallation
+```
+
+单独管理。
+
+因此同一家公司使用同一款软件时，可以存在多台独立设备：
+
+```text
+CustomerSoftware
+├─ ClientInstallation A
+├─ ClientInstallation B
+└─ ClientInstallation C
+```
+
 客户只能访问自己已授权的软件。
 
 ---
@@ -243,8 +289,18 @@ Customer 用户登录后可进入：
   ↓
 可用正式版本
   ↓
-安装包
+安装包 / 版本资料
 ```
+
+同时支持自动更新相关功能：
+
+```text
+获取更新激活码
+更新设备管理
+停用某台设备的更新权限
+```
+
+“更新激活码”只用于给一台新设备开通自动更新能力，不是软件注册码，也不会决定业务软件能否正常启动。
 
 客户身份由 JWT 中的 CustomerId 和服务器数据库共同校验，不能通过修改前端参数访问其他客户数据。
 
@@ -280,38 +336,46 @@ Admin
 ├─ 软件管理
 ├─ 版本管理
 ├─ 客户端更新
+├─ 更新设备授权
 ├─ 下载 / 更新记录
 ├─ 工单管理
 ├─ 用户管理
 ├─ SLA 设置
-└─ 通知策略
+├─ 通知策略
+└─ 修改自己的密码
 
 Support
 ├─ 客户管理
 ├─ 软件管理
 ├─ 版本管理
 ├─ 下载 / 更新记录
-└─ 工单管理
+├─ 工单管理
+└─ 修改自己的密码
 
 Developer
 ├─ 软件管理
 ├─ 版本管理
 ├─ 客户端更新
-└─ 工单管理
+├─ 工单管理
+└─ 修改自己的密码
 
 Sales
 ├─ 客户管理
-└─ 工作台
+├─ 工作台
+└─ 修改自己的密码
 
 Customer
 ├─ 我的软件
+├─ 更新激活码
+├─ 更新设备管理
 ├─ 工单管理
-└─ 工作台
+├─ 工作台
+└─ 修改自己的密码
 ```
 
 ---
 
-## 8. 登录认证
+## 8. 登录认证与账户安全
 
 系统使用 JWT Authentication。
 
@@ -335,6 +399,34 @@ apiFetch 自动附加 Authorization
 
 JWT 中包含用户身份、角色以及 CustomerId 等业务信息。
 
+所有登录角色都可以通过：
+
+```text
+/change-password
+```
+
+修改自己的密码。
+
+接口：
+
+```text
+POST /api/account/change-password
+```
+
+规则包括：
+
+- 必须验证当前密码
+- 新密码至少 8 位
+- 两次新密码必须一致
+- 新密码不能与当前密码相同
+- 修改成功后前端主动退出，要求使用新密码重新登录
+
+管理员仍然可以在用户管理中重置其他账号密码：
+
+```text
+POST /api/users/{id}/reset-password
+```
+
 ---
 
 ## 9. 客户端自动更新
@@ -347,44 +439,99 @@ JWT 中包含用户身份、角色以及 CustomerId 等业务信息。
 /client-updates
 ```
 
-### 9.1 更新授权
+管理员设备级更新授权入口：
 
-每一个：
+```text
+/client-devices
+```
+
+### 9.1 设备级更新授权
+
+新客户端使用设备级更新授权。
+
+核心关系：
 
 ```text
 CustomerSoftware
+        ↓
+一次性更新激活码
+        ↓
+ClientInstallation
+        ↓
+设备独立 UpdateToken
 ```
 
-都可以生成独立的 UpdateToken。
+客户在“我的软件”页面点击：
 
-请求通过：
+```text
+获取更新激活码
+```
+
+获得一个短期、一次性使用的更新激活码。
+
+桌面软件第一次需要开通更新时：
+
+```text
+输入更新激活码
+  ↓
+POST /api/client-activation/activate
+  ↓
+服务器验证客户 + 软件关系
+  ↓
+创建 ClientInstallation
+  ↓
+生成该设备独立 UpdateToken
+  ↓
+客户端保存本机 updater.json
+```
+
+后续检查更新通过：
 
 ```http
 X-Update-Token: ssp_upd_xxx
 ```
 
-进行认证。
+认证。
 
-数据库不会保存明文 Token，只保存：
+数据库不保存明文 UpdateToken，只保存：
 
 ```text
 TokenHash
 TokenPrefix
 IsEnabled
-CreatedAt
-UpdatedAt
+ActivatedAt
 LastUsedAt
+UpdatedAt
 ```
 
-支持：
+管理员可以在“更新设备授权”中查看：
 
-- 生成 Token
-- 重置 Token
-- 启用 Token
-- 撤销 Token
-- 查看最近使用时间
+```text
+客户
+软件
+已授权设备数量
+正常设备数量
+已停用设备数量
+最近检查时间
+具体设备
+```
 
-Token 数据已经正式纳入 EF Core Entity + Migration 管理。
+并可以对某一台设备执行：
+
+```text
+停用更新
+重新启用更新
+```
+
+停用某台设备后：
+
+```text
+业务软件正常启动和使用 ✅
+该设备在线自动更新失效 ❌
+同公司其他设备不受影响 ✅
+```
+
+当前测试阶段代码中仍保留旧共享 UpdateToken 的兼容逻辑，后续确认不再需要后可以单独清理。
 
 ---
 
@@ -495,20 +642,18 @@ clients/
 └─ SoftwareServicePlatform.Updater/
 ```
 
-Updater 当前已经使用 WinForms 图形界面，而不是控制台黑窗口。
+Updater 当前使用 WinForms 图形界面，而不是控制台黑窗口。
 
 支持显示：
 
 ```text
 当前版本
 目标版本
-正在检查本地文件
-正在下载更新文件
-正在安装更新
-当前处理文件
+当前阶段
 文件数量
 百分比
-更新完成状态
+当前处理文件
+更新完成 / 失败状态
 ```
 
 核心能力包括：
@@ -527,7 +672,9 @@ Updater 当前已经使用 WinForms 图形界面，而不是控制台黑窗口�
 - `updater.log` 错误日志
 - 错误 MessageBox
 
-推荐目录：
+### 新安装包目录
+
+推荐：
 
 ```text
 AppRoot/
@@ -535,17 +682,17 @@ AppRoot/
 ├─ version.txt
 └─ updater/
    ├─ SoftwareServicePlatform.Updater.exe
-   ├─ updater.json
-   └─ updater.log
+   └─ updater.bootstrap.json
 ```
 
-`updater.json` 示例：
+新安装包**不需要预置真实 `updater.json`**。
+
+`updater.bootstrap.json` 只包含非敏感信息：
 
 ```json
 {
-  "serverUrl": "https://service.example.com",
+  "serverUrl": "https://ssp.example.com",
   "softwareCode": "YourSoftwareCode",
-  "updateToken": "YOUR_UPDATE_TOKEN",
   "versionFile": "version.txt",
   "mainExecutable": "YourSoftware.exe",
   "fallbackToFullInstaller": true,
@@ -554,13 +701,25 @@ AppRoot/
 }
 ```
 
-> 不要将真实 UpdateToken 提交到公开 Git 仓库。
+完成更新设备授权后，真正包含设备 UpdateToken 的配置保存到：
+
+```text
+%LOCALAPPDATA%\SoftwareServicePlatform\UpdaterConfigs\<softwareCode>\updater.json
+```
+
+主程序启动 Updater 时显式传入：
+
+```text
+--config "<LocalAppData中的updater.json>"
+```
+
+> 不要将真实 UpdateToken 或生成后的真实 `updater.json` 提交到公开 Git 仓库。
 
 ---
 
 ## 11. 客户端接入示例
 
-仓库提供客户端接入示例：
+仓库提供：
 
 ```text
 examples/
@@ -568,11 +727,31 @@ examples/
 └─ Qt5/
 ```
 
-用于展示已有桌面软件如何：
+两套示例使用同一套设备级更新授权逻辑：
 
 ```text
 启动
   ↓
+读取 updater.bootstrap.json
+  ↓
+本机是否已有设备 updater.json？
+  ├─ 有 → 直接检查更新
+  └─ 无
+      ↓
+   弹出“设备更新授权”
+      ↓
+   输入一次性更新激活码
+      ↓
+   获取设备独立 UpdateToken
+      ↓
+   保存到 LocalAppData
+      ↓
+   继续检查更新
+```
+
+后续：
+
+```text
 读取 version.txt
   ↓
 调用平台检查更新接口
@@ -584,7 +763,7 @@ examples/
 退出主程序
 ```
 
-平台自动更新设计尽量与业务软件解耦，使 WinForms、Qt 等现有 Windows 桌面软件都能复用同一套 Updater。
+自动更新是辅助能力。普通网络错误或服务器暂时不可用时，不应阻止业务软件正常启动。
 
 ---
 
@@ -863,7 +1042,6 @@ SoftwareServicePlatform/
 │  ├─ CSharpWinForms/
 │  └─ Qt5/
 │
-├─ docs/
 ├─ .gitignore
 └─ README.md
 ```
@@ -974,6 +1152,12 @@ Update-Database
 
 数据库结构统一通过 EF Core Migration 管理。
 
+当前设备级更新授权已经包含对应 Migration：
+
+```text
+AddClientDeviceActivation
+```
+
 ---
 
 ## 24. 启动前端
@@ -1045,26 +1229,26 @@ dotnet publish clients/SoftwareServicePlatform.Updater/SoftwareServicePlatform.U
 main
 ```
 
-每个功能、修复或重构单独创建分支。
+每个功能、修复、重构或文档更新单独创建分支。
 
 例如：
 
 ```text
 feature/client-auto-update
 feature/ticket-management
-feature/notification-policy
 
 fix/update-download
-fix/login-auth
 
 refactor/download-service
+
+docs/update-readme
 ```
 
 标准流程：
 
 ```bash
 git switch main
-git pull
+git pull origin main
 
 git switch -c feature/xxx
 
@@ -1091,7 +1275,7 @@ Merge main
 
 ```bash
 git switch main
-git pull
+git pull origin main
 git branch -d feature/xxx
 ```
 
@@ -1117,6 +1301,8 @@ chore     工程 / 配置
 | PostgreSQL / EF Core | ✅ |
 | JWT 登录认证 | ✅ |
 | RBAC 权限 | ✅ |
+| 用户自助修改密码 | ✅ |
+| 管理员重置密码 | ✅ |
 | 客户管理 | ✅ |
 | 软件管理 | ✅ |
 | 软件版本管理 | ✅ |
@@ -1126,7 +1312,12 @@ chore     工程 / 配置
 | 下载记录 | ✅ |
 | 客户端自动更新 | ✅ |
 | 文件级增量更新 | ✅ |
-| UpdateToken 权限 | ✅ |
+| 更新激活码 | ✅ |
+| 设备级 UpdateToken | ✅ |
+| 客户更新设备管理 | ✅ |
+| 管理员更新设备授权管理 | ✅ |
+| C# WinForms 更新授权接入 | ✅ |
+| Qt 5.8 更新授权接入 | ✅ |
 | 更新记录上报 | ✅ |
 | WinForms GUI Updater | ✅ |
 | SHA256 校验 | ✅ |
@@ -1151,6 +1342,10 @@ chore     工程 / 配置
 
 后续可根据实际业务继续扩展：
 
+- 清理测试阶段保留的旧共享 UpdateToken 兼容逻辑
+- 设备数量上限
+- 设备改名
+- 更新授权操作审计
 - Updater 自更新
 - HTTPS 正式域名与反向代理部署
 - 对象存储 / 文件服务器
@@ -1191,6 +1386,8 @@ chore     工程 / 配置
 统一版本
   ↓
 统一发布
+  ↓
+统一更新设备授权
   ↓
 统一下载 / 自动更新
   ↓

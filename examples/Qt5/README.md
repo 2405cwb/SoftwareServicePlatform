@@ -1,18 +1,20 @@
-# Qt 5.8 客户端接入：设备激活 + 自动更新
+# Qt 5.8 客户端接入：设备更新授权 + 自动更新
 
-本示例与 C# WinForms 示例使用同一套设备级授权逻辑：
+本示例与 C# WinForms 示例使用同一套设备级更新授权逻辑：
 
 ```text
 客户 + 软件授权（CustomerSoftware）
         ↓
-一次性激活码
+一次性更新激活码
         ↓
 当前安装实例（ClientInstallation）
         ↓
 本设备独立 UpdateToken
 ```
 
-客户不再手工填写 `UpdateToken`。
+客户不再手工填写长期 `UpdateToken`。
+
+这里的“更新授权”只决定当前设备能否使用平台自动更新，不影响业务软件正常启动和使用。
 
 ---
 
@@ -47,11 +49,11 @@ win32:LIBS += -lshell32
 
 ---
 
-## 2. 新安装包的目录结构
+## 2. 新安装包目录结构
 
 完整安装包仍然是所有客户共用的同一个 EXE / MSI，不需要给不同客户重新打包。
 
-建议目录：
+推荐：
 
 ```text
 AppRoot/
@@ -62,9 +64,13 @@ AppRoot/
    └─ updater.bootstrap.json
 ```
 
-注意：**新安装包不要预置 `updater.json`。**
+新安装包不要预置真实：
 
-真正包含设备 UpdateToken 的 `updater.json` 会在首次激活成功后自动生成。
+```text
+updater.json
+```
+
+真正包含设备 UpdateToken 的 `updater.json` 会在设备完成更新授权后自动生成。
 
 ---
 
@@ -96,13 +102,7 @@ updater/updater.bootstrap.json
 }
 ```
 
-其中：
-
-```text
-serverUrl
-```
-
-应该填写 API 根地址，不是 Vite 前端开发端口。
+`serverUrl` 应填写 API 根地址，不是 Vite 前端开发端口。
 
 本地开发通常是：
 
@@ -116,11 +116,11 @@ http://localhost:5108
 https://ssp.cwb2405.cn
 ```
 
-`softwareCode` 必须与平台数据库中的 `Software.Code` 完全对应。
+`softwareCode` 必须与平台数据库中的 `Software.Code` 对应。
 
 ---
 
-## 4. 首次激活流程
+## 4. 第一次更新授权流程
 
 第一次启动时，如果本机还没有设备配置：
 
@@ -129,9 +129,9 @@ https://ssp.cwb2405.cn
     ↓
 读取 updater.bootstrap.json
     ↓
-弹出“软件首次激活”窗口
+弹出“设备更新授权”窗口
     ↓
-客户输入一次性激活码
+客户输入一次性更新激活码
     ↓
 POST /api/client-activation/activate
     ↓
@@ -144,13 +144,15 @@ POST /api/client-activation/activate
 继续检查更新
 ```
 
-客户只需要接触一次性激活码，不会看到长期 UpdateToken。
+客户只需要接触一次性更新激活码，不会看到长期 UpdateToken。
+
+更新激活码只用于给一台新设备开通自动更新能力，不是业务软件注册码。
 
 ---
 
 ## 5. updater.json 保存位置
 
-新版 Qt 示例与 C# 示例保持一致，真正的设备配置保存到：
+Qt 示例与 C# 示例保持一致，真正的设备配置保存到：
 
 ```text
 %LOCALAPPDATA%\SoftwareServicePlatform\UpdaterConfigs\<softwareCode>\updater.json
@@ -168,7 +170,7 @@ C:\Users\cwb\AppData\Local\SoftwareServicePlatform\UpdaterConfigs\XRDataProcess\
 C:\Program Files\...
 ```
 
-普通用户也能完成首次激活，不会因为安装目录无写权限失败。
+普通用户也能保存设备更新配置。
 
 ---
 
@@ -214,7 +216,7 @@ checker->checkForUpdates(
     QCoreApplication::applicationDirPath());
 ```
 
-业务源码中不需要出现：
+业务源码中不需要硬编码：
 
 ```text
 serverUrl
@@ -222,11 +224,20 @@ softwareCode
 updateToken
 ```
 
-其中前两个来自 `updater.bootstrap.json`，设备 Token 由首次激活自动生成。
+其中：
+
+```text
+serverUrl
+softwareCode
+```
+
+来自 `updater.bootstrap.json`；
+
+设备 `UpdateToken` 由更新授权成功后自动获得。
 
 ---
 
-## 8. 启动 Updater 时的变化
+## 8. 启动 Updater
 
 新版会显式传入：
 
@@ -240,46 +251,55 @@ updateToken
 
 ---
 
-## 9. 旧客户端兼容
+## 9. 设备停用与重新启用
 
-如果老版本目录里仍然存在：
-
-```text
-updater/updater.json
-```
-
-并且里面是原来的“客户 + 软件共享 Token”，新版 Qt 示例仍然会继续读取它。
-
-读取顺序为：
+设备级关系：
 
 ```text
-LocalAppData 设备级 updater.json
-        ↓ 找不到
-安装目录旧版 updater/updater.json
-        ↓ 找不到
-首次激活
+CustomerSoftware
+    ↓
+ClientInstallation A
+ClientInstallation B
+ClientInstallation C
 ```
 
-因此可以逐步迁移，不要求已经部署出去的旧客户端当天全部重新激活。
+管理员或客户停用 B：
+
+```text
+A 正常更新
+B 无法检查 / 下载更新
+C 正常更新
+```
+
+停用更新不会阻止 B 上的业务软件正常启动。
+
+管理员后续可以重新启用该设备更新权限。
 
 ---
 
-## 10. 旧 updater.json.example
+## 10. 断网行为
 
-仓库中的 `updater.json.example` 仅保留用于说明旧版格式和迁移，不要复制进新的正式安装包。
-
-新安装包只需要：
+已经完成更新授权的设备临时断网：
 
 ```text
-SoftwareServicePlatform.Updater.exe
-updater.bootstrap.json
+业务软件正常启动
+→ 在线更新检查失败 / 跳过
+→ 不影响业务软件正常使用
+```
+
+第一次更新授权时没有网络：
+
+```text
+更新授权无法完成
+→ 提示网络或服务器不可用
+→ 不应因为更新系统不可用而锁死业务软件
 ```
 
 ---
 
 ## 11. Qt 5.8 兼容说明
 
-本示例只使用 Qt 5.8 已具备的常用模块/API：
+本示例只使用 Qt 5.8 已具备的常用模块 / API：
 
 ```text
 QtCore
@@ -288,7 +308,28 @@ QtNetwork
 QJsonDocument / QJsonObject
 QSaveFile
 QStandardPaths
+QHostInfo
 ShellExecuteW（Windows）
 ```
 
 没有依赖 Qt 6 API。
+
+---
+
+## 12. 安全注意事项
+
+不要把真实的：
+
+```text
+UpdateToken
+updater.json
+```
+
+提交到 Git 或预置到通用安装包。
+
+新安装包只需要：
+
+```text
+SoftwareServicePlatform.Updater.exe
+updater.bootstrap.json
+```
