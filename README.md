@@ -1409,4 +1409,3 @@ SoftwareServicePlatform 不只是一个软件下载页面，而是面向软件�
 ## License
 
 当前项目主要用于内部业务开发与技术实践。  
-如需对外开源或商业发布，请根据实际情况补充正式 License。
