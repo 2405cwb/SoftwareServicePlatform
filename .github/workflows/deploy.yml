@@ -14,6 +14,19 @@ jobs:
     environment: production
 
     steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Create deployment bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          git bundle create ssp-deploy.bundle refs/heads/main
+          git bundle verify ssp-deploy.bundle
+
       - name: Configure SSH
         shell: bash
         env:
@@ -28,6 +41,18 @@ jobs:
           ssh-keyscan -H "$ECS_HOST" >> ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
+      - name: Upload deployment bundle
+        shell: bash
+        env:
+          ECS_HOST: ${{ secrets.ECS_HOST }}
+          ECS_USER: ${{ secrets.ECS_USER }}
+        run: |
+          set -euo pipefail
+          scp \
+            -i ~/.ssh/ssp-prod-key \
+            ssp-deploy.bundle \
+            "$ECS_USER@$ECS_HOST:/tmp/ssp-deploy.bundle"
+
       - name: Backup, deploy and rollback on failure
         shell: bash
         env:
@@ -40,21 +65,32 @@ jobs:
           set -euo pipefail
 
           APP_DIR="/opt/software-service-platform/app"
+          BUNDLE_PATH="/tmp/ssp-deploy.bundle"
+
           cd "$APP_DIR"
 
           OLD_REV="$(git rev-parse HEAD)"
+
           echo "== Current revision =="
           git rev-parse --short "$OLD_REV"
 
-          echo "== Fetch target revision =="
-          git fetch origin main
-          TARGET_REV="$(git rev-parse origin/main)"
+          echo "== Load target revision from deployment bundle =="
+
+          if [ ! -f "$BUNDLE_PATH" ]; then
+            echo "Missing deployment bundle: $BUNDLE_PATH"
+            exit 1
+          fi
+
+          git fetch "$BUNDLE_PATH" refs/heads/main
+          TARGET_REV="$(git rev-parse FETCH_HEAD)"
           git reset --hard "$TARGET_REV"
+          rm -f "$BUNDLE_PATH"
 
           echo "== Target revision =="
           git rev-parse --short "$TARGET_REV"
 
           echo "== Backup current production data =="
+
           if [ ! -f scripts/backup-production.sh ]; then
             echo "Missing scripts/backup-production.sh."
             git reset --hard "$OLD_REV"
@@ -64,12 +100,12 @@ jobs:
           chmod +x scripts/backup-production.sh
           ./scripts/backup-production.sh "$APP_DIR"
 
-         deploy_stack() {
+          deploy_stack() {
             docker compose \
-            -f compose.prod.yaml \
-            --env-file .env \
-            up -d --build --force-recreate
-            }
+              -f compose.prod.yaml \
+              --env-file .env \
+              up -d --build --force-recreate
+          }
 
           show_status() {
             docker compose \
@@ -98,12 +134,14 @@ jobs:
 
           show_failure_logs() {
             echo "== API logs =="
+
             docker compose \
               -f compose.prod.yaml \
               --env-file .env \
               logs --tail=120 api || true
 
             echo "== Frontend logs =="
+
             docker compose \
               -f compose.prod.yaml \
               --env-file .env \
@@ -111,6 +149,7 @@ jobs:
           }
 
           echo "== Rebuild and start target revision =="
+
           if ! deploy_stack; then
             echo "Target deployment command failed."
             show_failure_logs
@@ -124,6 +163,7 @@ jobs:
             show_status
 
             echo "== Health check =="
+
             if health_check 30 3; then
               echo "Deployment succeeded."
               exit 0
@@ -147,11 +187,12 @@ jobs:
             echo "Database changes are NOT restored automatically."
             exit 1
           fi
-          
+
           echo "== Rolled-back container status =="
           show_status
 
           echo "== Rolled-back health check =="
+
           if health_check 30 3; then
             echo "Code rollback succeeded and the previous revision is healthy."
             echo
