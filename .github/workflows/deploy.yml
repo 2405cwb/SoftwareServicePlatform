@@ -45,13 +45,21 @@ jobs:
           echo "== Current revision =="
           git rev-parse --short HEAD || true
 
-          echo "== Backup current production data =="
-          chmod +x scripts/backup-production.sh
-          ./scripts/backup-production.sh "$APP_DIR"
-
-          echo "== Update source to origin/main =="
+          echo "== Fetch latest deployment files =="
           git fetch origin main
           git reset --hard origin/main
+
+          echo "== Target revision =="
+          git rev-parse --short HEAD
+
+          echo "== Backup current production data =="
+          if [ ! -f scripts/backup-production.sh ]; then
+            echo "Missing scripts/backup-production.sh after updating to origin/main."
+            exit 1
+          fi
+
+          chmod +x scripts/backup-production.sh
+          ./scripts/backup-production.sh "$APP_DIR"
 
           echo "== Rebuild and start containers =="
           docker compose \
