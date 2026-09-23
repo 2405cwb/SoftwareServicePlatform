@@ -64,12 +64,12 @@ jobs:
           chmod +x scripts/backup-production.sh
           ./scripts/backup-production.sh "$APP_DIR"
 
-          deploy_stack() {
+         deploy_stack() {
             docker compose \
-              -f compose.prod.yaml \
-              --env-file .env \
-              up -d --build
-          }
+            -f compose.prod.yaml \
+            --env-file .env \
+            up -d --build --force-recreate
+            }
 
           show_status() {
             docker compose \
@@ -147,7 +147,7 @@ jobs:
             echo "Database changes are NOT restored automatically."
             exit 1
           fi
-
+          
           echo "== Rolled-back container status =="
           show_status
 
